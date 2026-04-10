@@ -24,6 +24,10 @@ class Server_Farm:
   @property
   def curr_cpus_util(self):
     return [server.cpu_utilization_rate for server in self.servers.values()]
+
+  @property
+  def efficiency_tiers(self):
+    return [server.efficiency_tier for server in self.servers.values()]
   
   @property
   def curr_pwrs(self):

@@ -2,8 +2,43 @@ import igraph as ig
 import matplotlib.pyplot as plt
 import random
 
+# --- Heterogeneous server generation presets ---
+# (α, β, Opt) parameters per generation; efficiency_tier is normalised to [0,1]
+SERVER_GENERATIONS = {
+    "old": {"alpha": 0.75, "beta": 13, "opt": 0.6, "efficiency_tier": 0.0},
+    "mid": {"alpha": 0.50, "beta": 10, "opt": 0.7, "efficiency_tier": 0.5},
+    "new": {"alpha": 0.30, "beta":  7, "opt": 0.8, "efficiency_tier": 1.0},
+}
+
+# Ready-made proportion configs for ablation experiments
+PROPORTION_PRESETS = {
+    "balanced": {"old": 0.33, "mid": 0.34, "new": 0.33},  # roughly equal mix
+    "legacy":   {"old": 0.60, "mid": 0.30, "new": 0.10},  # old-heavy (legacy DC)
+    "modern":   {"old": 0.10, "mid": 0.20, "new": 0.70},  # new-heavy (modern DC)
+}
+
+
+def _assign_generation_labels(n_servers, server_proportions):
+    """Return a list of n_servers generation strings derived deterministically
+    from *server_proportions* (dict with keys "old", "mid", "new").
+    The last generation absorbs rounding slack so len(result) == n_servers."""
+    gens = ["old", "mid", "new"]
+    counts = {}
+    assigned = 0
+    for i, gen in enumerate(gens):
+        if i < len(gens) - 1:
+            counts[gen] = round(server_proportions.get(gen, 0.0) * n_servers)
+            assigned += counts[gen]
+        else:
+            counts[gen] = n_servers - assigned
+    labels = []
+    for gen in gens:
+        labels.extend([gen] * max(counts[gen], 0))
+    return labels
+
+
 # Set vertices and edges attributes
-def add_graph_vertices_and_edges_attributes(g, seed=None):
+def add_graph_vertices_and_edges_attributes(g, seed=None, server_proportions=None):
   if seed is not None:
     random.seed(seed)
   else:
@@ -20,15 +55,33 @@ def add_graph_vertices_and_edges_attributes(g, seed=None):
   
   # predefined max number of VMs in the server
   v = 10 # max v type of VMs hosted on server
-  alpha = 0
-  beta = 10 # predefined to 10
   cumulative_server_cpu_value = 0
   cumulative_server_mem_value = 0
-  
+
+  # Determine per-vertex generation params: generation-based when
+  # server_proportions is provided, otherwise legacy random-alpha path.
+  if server_proportions is not None:
+    generation_labels = _assign_generation_labels(new_graph.vcount(), server_proportions)
+
   # Set vertices attributes
-  for vertex in new_graph.vs:
-    # random alpha values to dictate different pwr consumption curve even with similar load on servers
-    alpha = round(random.uniform(0.3, 0.8), 2)
+  for i, vertex in enumerate(new_graph.vs):
+    if server_proportions is not None:
+      # --- heterogeneous path ---
+      gen_name   = generation_labels[i]
+      gen_params = SERVER_GENERATIONS[gen_name]
+      alpha = gen_params["alpha"]
+      beta  = gen_params["beta"]
+      gen_label      = gen_name
+      opt_util       = gen_params["opt"]
+      eff_tier       = gen_params["efficiency_tier"]
+    else:
+      # --- legacy path: original random alpha behaviour ---
+      alpha = round(random.uniform(0.3, 0.8), 2)
+      beta  = 10
+      gen_label = "mid"
+      opt_util  = 0.7
+      eff_tier  = 0.5
+
     min_vm_cpu_and_ram_value = 1/v # min cpu and ram to host vm
     vm_cpu_value = min_vm_cpu_and_ram_value
     vm_mem_value = min_vm_cpu_and_ram_value
@@ -40,6 +93,9 @@ def add_graph_vertices_and_edges_attributes(g, seed=None):
     vertex['Cumulative_Server_CPU_and_MEM'] = {
       (cumulative_server_cpu_value, cumulative_server_mem_value)}
     vertex['Power_Consumption_Coefficients'] = {(alpha, beta)}
+    vertex['Server_Generation'] = gen_label
+    vertex['Opt_Utilization']   = opt_util
+    vertex['Efficiency_Tier']   = eff_tier
   
   if new_graph.vcount() > 1:
     # Collect edge tuples from the original graph with adjusted IDs
@@ -58,36 +114,36 @@ def get_number_of_active_VM_state_at_time_t(VM_request_state):
   active_VMs = VM_request_state.count(1)
   return active_VMs
 
-def create_a_server_farm(num_servers, seed=None):
+def create_a_server_farm(num_servers, seed=None, server_proportions=None):
   if seed is not None:
     random.seed(seed)
   else:
     random.seed(42)
-  
+
   if num_servers <= 6:
     g = ig.Graph.Full(
       n=num_servers, directed=False, loops=False)
   else:
     g = ig.Graph.Barabasi(
       n=num_servers, m=2, directed=False)
-  g = add_graph_vertices_and_edges_attributes(g)
+  g = add_graph_vertices_and_edges_attributes(g, seed=seed, server_proportions=server_proportions)
   return g
 
-def create_server_farms(total_servers, num_farms, seed=None):
+def create_server_farms(total_servers, num_farms, seed=None, server_proportions=None):
   if seed is not None:
     random.seed(seed)
   else:
     random.seed(42)
-  
+
   farm_graphs = []
-  
+
   servers_per_farm = total_servers // num_farms
   remaining_servers = total_servers % num_farms
-  
+
   for i in range(num_farms):
     num_servers = servers_per_farm + (1 if i < remaining_servers else 0)
-    farm_graphs.append(create_a_server_farm(num_servers, seed))
-  
+    farm_graphs.append(create_a_server_farm(num_servers, seed, server_proportions))
+
   return farm_graphs
 
 def print_single_vertex_attributes(vertex):

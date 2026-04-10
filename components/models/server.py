@@ -9,27 +9,35 @@ class Server:
     c_cpu: float,
     c_ram: float,
     alpha: float,
-    beta: float
+    beta: float,
+    generation: str = "mid",
+    efficiency_tier: float = 0.5,
+    opt_utilization: float = 0.7,
   ):
-    
+
     self.id = id
-    
+
     self.server_farm_id = server_farm_id
-    
+
     self.vms = self.populate_vm(vms)
-    
+
     self.vm_numbers = len(self.vms)
-    
+
     self.c_cpu = c_cpu
-    
+
     self.c_ram = c_ram
-    
+
     self.alpha = alpha
-    
+
     self.beta = beta
-    
+
+    # heterogeneous server attributes
+    self.generation      = generation        # "old" / "mid" / "new"
+    self.efficiency_tier = efficiency_tier   # normalised [0,1]: 0.0/0.5/1.0
+    self.opt_utilization = opt_utilization   # inflection point in power model
+
     self.current_cpu_usage = 0.0
-    
+
     self.current_ram_usage = 0.0
     
   # Energy Consumption Model on Server
@@ -50,7 +58,7 @@ class Server:
   @property
   def dynamic_power(self):
     cpu_utilization_rate = self.cpu_utilization_rate
-    optimal_utilization_rate = 0.7
+    optimal_utilization_rate = self.opt_utilization
     if cpu_utilization_rate < optimal_utilization_rate:
       return round(cpu_utilization_rate * self.alpha, 2)
     return round(

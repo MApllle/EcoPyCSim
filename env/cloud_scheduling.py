@@ -13,15 +13,24 @@ class CloudSchedulingEnv(ParallelEnv):
     num_jobs,
     num_server_farms,
     num_servers,
-    render_mode=None
+    render_mode=None,
+    use_heterogeneity: bool = True,
+    hetero_weight: float = 0.3,
+    server_proportions=None,
   ):
-    
+
     self.num_jobs = num_jobs
     self.num_server_farms = num_server_farms
     self.num_servers = num_servers
     assert self.num_servers / self.num_server_farms >= 1, "Server number must be possible to be divided among server farm number."
     self.server_farm_id = 0
     self.server_id = 0
+
+    # heterogeneity controls (ablation-friendly)
+    self.use_heterogeneity  = use_heterogeneity
+    self.hetero_weight      = hetero_weight
+    self.server_proportions = server_proportions
+    self._last_hetero_reward = 0.0
     
     self.wall_time = 0
     self.timeline = Timeline()
@@ -55,6 +64,7 @@ class CloudSchedulingEnv(ParallelEnv):
       shape = arr_list.shape
       obs = spaces.Dict({
         "cpus_utilization": spaces.Box(low=0, high=1.0, shape=shape, dtype=float),
+        "efficiency_tiers":  spaces.Box(low=0, high=1.0, shape=shape, dtype=float),
         "task_cpu": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
         "task_ram": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
         "task_deadline": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=float),
@@ -64,10 +74,10 @@ class CloudSchedulingEnv(ParallelEnv):
     elif agent == "server":
       first_key = next(iter(self.server_farms.keys()))
       num_servers = self.server_farms[first_key].num_servers
-      arr_list = np.array([0.0] * num_servers)
-      shape = arr_list.shape
+      shape = (num_servers,)
       obs = spaces.Dict({
         "cpus_utilization": spaces.Box(low=0, high=1, shape=shape, dtype=float),
+        "efficiency_tiers":  spaces.Box(low=0, high=1, shape=shape, dtype=float),
         "task_cpu": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
         "task_ram": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
         "task_deadline": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=float),
@@ -98,7 +108,10 @@ class CloudSchedulingEnv(ParallelEnv):
       )
       self.jobs[job.id] = job
 
-    server_farms = initialize_server_farms(self.num_servers, self.num_server_farms, seed)
+    server_farms = initialize_server_farms(
+      self.num_servers, self.num_server_farms, seed,
+      server_proportions=self.server_proportions
+    )
     for server_farm in server_farms:
       self.server_farms[server_farm.id] = server_farm
     
@@ -117,6 +130,7 @@ class CloudSchedulingEnv(ParallelEnv):
     
     self.prev_server_farm_reward = 0
     self.prev_server_reward = 0
+    self._last_hetero_reward = 0.0
     
     self.active_job_ids = []
     self.completed_job_ids = set()
@@ -191,6 +205,7 @@ class CloudSchedulingEnv(ParallelEnv):
       "rejected_tasks_count": self.rejected_tasks_count,
       "wall_time": self.wall_time,
       "price": round(sum(server_farm.get_price for server_farm in self.server_farms.values()), 2),
+      "hetero_reward_total": self._last_hetero_reward,
       }
       return info
     elif agent == "server":
@@ -294,12 +309,14 @@ class CloudSchedulingEnv(ParallelEnv):
   def _get_observation(self, agent):
     if agent == "server_farm":
       cpus_util = np.array([self.server_farms[key].curr_cpus_util for key in self.server_farms.keys()])
+      eff_tiers = np.array([self.server_farms[key].efficiency_tiers for key in self.server_farms.keys()])
       task_cpu = np.array(self.scheduled_task_cpu).flatten()
       task_ram = np.array(self.scheduled_task_ram).flatten()
       task_deadline = np.array(self.scheduled_task_deadline).flatten()
 
       obs = {
         "cpus_utilization": cpus_util,
+        "efficiency_tiers":  eff_tiers,
         "task_cpu": task_cpu,
         "task_ram": task_ram,
         "task_deadline": task_deadline,
@@ -309,12 +326,14 @@ class CloudSchedulingEnv(ParallelEnv):
     elif agent == "server":
       server_farm = self.server_farms[self.server_farm_id]
       cpus_util = np.array(server_farm.curr_cpus_util)
+      eff_tiers = np.array(server_farm.efficiency_tiers)
       task_cpu = np.array(self.scheduled_task_cpu).flatten()
       task_ram = np.array(self.scheduled_task_ram).flatten()
       task_deadline = np.array(self.scheduled_task_deadline).flatten()
 
       obs = {
         "cpus_utilization": cpus_util,
+        "efficiency_tiers":  eff_tiers,
         "task_cpu": task_cpu,
         "task_ram": task_ram,
         "task_deadline": task_deadline,
@@ -333,13 +352,26 @@ class CloudSchedulingEnv(ParallelEnv):
     else:
       task_success_reward = -2  # Penalty for task rejection
 
+    # Heterogeneity-aware bonus: reward placing CPU-intensive tasks on
+    # high-efficiency servers. Both agents receive the same cooperative bonus.
+    # Controlled by use_heterogeneity flag for ablation experiments.
+    hetero_bonus = 0.0
+    if self.use_heterogeneity and not self.task_rejected_status:
+      selected_server = self.server_farms[self.server_farm_id].servers[str(self.server_id)]
+      hetero_bonus = (
+        selected_server.efficiency_tier
+        * self.scheduled_task_cpu
+        * self.hetero_weight
+      )
+      self._last_hetero_reward = hetero_bonus
+
     # Combine global and individual rewards
     if agent == "server_farm":
       # Server farm reward includes both individual and global components
-      combined_reward = energy_saving_reward + (task_success_reward * 0.5)
+      combined_reward = energy_saving_reward + (task_success_reward * 0.5) + hetero_bonus
     elif agent == "server":
       # Server reward focuses on cooperating to complete tasks
-      combined_reward = task_success_reward + (energy_saving_reward * 0.5)
+      combined_reward = task_success_reward + (energy_saving_reward * 0.5) + hetero_bonus
 
     self.prev_server_farm_reward = curr_energy_cost
     return round(combined_reward, 2)

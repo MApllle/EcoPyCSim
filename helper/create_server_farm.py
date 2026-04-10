@@ -2,10 +2,10 @@ from components.models import server, server_farm
 from components.model_scripts.make_server_farms import create_server_farms, print_single_graph_attributes, print_all_graph_attributes
 from components.models import vm
 
-def initialize_server_farms(total_servers, num_farms, seed=None):
+def initialize_server_farms(total_servers, num_farms, seed=None, server_proportions=None):
   if seed is not None:
     seed = seed
-  farm_graphs = create_server_farms(total_servers, num_farms, seed)
+  farm_graphs = create_server_farms(total_servers, num_farms, seed, server_proportions)
   #print_all_graph_attributes(farm_graphs)
   server_farms = []
 
@@ -33,8 +33,17 @@ def initialize_server_farms(total_servers, num_farms, seed=None):
       server_alpha = next(iter(pwr_consumption_coefficients))[0]
       server_beta = next(iter(pwr_consumption_coefficients))[1]
 
+      # heterogeneous attributes (present in all paths; default to "mid" values)
+      server_generation      = vertex.attributes().get('Server_Generation', 'mid')
+      server_efficiency_tier = vertex.attributes().get('Efficiency_Tier', 0.5)
+      server_opt_utilization = vertex.attributes().get('Opt_Utilization', 0.7)
+
       a_server = server.Server(
-        server_id, idx, vm_list, server_cpu, server_ram, server_alpha, server_beta)
+        server_id, idx, vm_list, server_cpu, server_ram, server_alpha, server_beta,
+        generation=server_generation,
+        efficiency_tier=server_efficiency_tier,
+        opt_utilization=server_opt_utilization,
+      )
       server_list.append(a_server)
 
     num_servers = graph.vcount()
