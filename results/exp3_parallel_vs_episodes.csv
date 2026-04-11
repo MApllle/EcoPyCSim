@@ -1,0 +1,6 @@
+total_episodes,parallel_workers,serial_wall_s,parallel_wall_s,speedup_vs_serial
+8,4,2.1022,1.962,1.0714
+16,4,4.1126,2.4705,1.6647
+32,4,8.2428,3.66,2.2521
+48,4,12.357,7.2672,1.7004
+64,4,21.7578,6.5368,3.3285
