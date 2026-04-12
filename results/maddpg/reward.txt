@@ -1,0 +1,10 @@
+episode 1, server_farm reward: -229.58000000000007, server reward: -465.3799999999998
+episode 2, server_farm reward: -244.53, server reward: -495.3299999999997
+episode 3, server_farm reward: -242.25999999999996, server reward: -491.35000000000036
+episode 4, server_farm reward: -265.5000000000003, server reward: -536.8
+episode 5, server_farm reward: -243.98999999999995, server reward: -494.28999999999985
+episode 6, server_farm reward: -237.46, server reward: -481.26
+episode 7, server_farm reward: -191.97999999999996, server reward: -391.98
+episode 8, server_farm reward: -181.19999999999996, server reward: -368.99999999999983
+episode 9, server_farm reward: -228.17000000000007, server reward: -463.1999999999997
+episode 10, server_farm reward: -199.14000000000004, server reward: -404.4399999999997
