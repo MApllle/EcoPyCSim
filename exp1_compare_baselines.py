@@ -1,10 +1,25 @@
+import os
+
 import numpy as np
+import torch
+
 from env.cloud_scheduling import CloudSchedulingEnv
 
+
+def _flatten_obs(obs_dict: dict) -> np.ndarray:
+    """将 dict 观测拼接为 1D numpy 数组（键排序，与 IDQN/MADDPG 相同）。"""
+    parts = []
+    for key in sorted(obs_dict.keys()):
+        arr = obs_dict[key]
+        parts.extend(arr.flatten() if isinstance(arr, np.ndarray) else [arr])
+    return np.array(parts, dtype=np.float32)
+
+
 class BaselineEvaluator:
-    def __init__(self):
+    def __init__(self, idqn=None):
         self.rr_count_farm = 0
         self.rr_count_server = 0
+        self.idqn = idqn   # 可选：传入已加载的 IDQN 实例
 
     def get_actions(self, obs_dict, strategy, env):
         """适配 ParallelEnv：一次性为所有活动的 Agent 生成动作"""
@@ -69,16 +84,25 @@ class BaselineEvaluator:
 
                 actions[agent] = int(np.argmin(costs))
 
+            elif strategy == "idqn":
+                if self.idqn is None:
+                    raise ValueError("strategy='idqn' 需要在 BaselineEvaluator(idqn=...) 传入已训练的 IDQN 实例")
+                flat_o = _flatten_obs(obs)
+                obs_t = torch.from_numpy(flat_o).unsqueeze(0).float().to(self.idqn.device)
+                with torch.no_grad():
+                    q_vals = self.idqn.agents[agent].q_net(obs_t)   # (1, act_dim)
+                actions[agent] = q_vals.argmax(dim=1).item()
+
             else:
                 actions[agent] = action_space.sample()
 
         return actions
 
-def run_experiment(strategy_name):
+def run_experiment(strategy_name, idqn=None):
     eval_env = CloudSchedulingEnv(num_jobs=100, num_server_farms=5, num_servers=50)
     observations, infos = eval_env.reset()
 
-    evaluator = BaselineEvaluator()
+    evaluator = BaselineEvaluator(idqn=idqn)
     total_price = 0
     step_count = 0
 
@@ -109,11 +133,48 @@ def run_experiment(strategy_name):
     eval_env.close()
 
 if __name__ == "__main__":
+    # ── 尝试加载已训练的 IDQN 模型 ─────────────────────────────────────────
+    idqn_instance = None
+    idqn_model_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), 'results', 'idqn', 'model.pt'
+    )
+    if os.path.exists(idqn_model_path):
+        from schedulers.marl.idqn.IDQN import IDQN
+        # 用与训练时相同的环境规模构建 dim_info
+        _tmp_env = CloudSchedulingEnv(num_jobs=100, num_server_farms=5, num_servers=50)
+        _tmp_env.reset()
+        _dim_info = {
+            agent_id: {
+                'obs_shape': {
+                    key: space.shape
+                    for key, space in _tmp_env.observation_space(agent_id).spaces.items()
+                },
+                'action_dim': _tmp_env.action_space(agent_id).n,
+            }
+            for agent_id in _tmp_env.agents
+        }
+        _tmp_env.close()
+        idqn_instance = IDQN.load(
+            dim_info   = _dim_info,
+            file       = idqn_model_path,
+            capacity   = 1,       # eval 模式不需要 buffer
+            batch_size = 1,
+            lr         = 0.0005,
+        )
+        print(f"已加载 IDQN 模型：{idqn_model_path}")
+    else:
+        print(f"未找到 IDQN 模型（{idqn_model_path}），跳过 idqn 策略。")
+        print("提示：先运行 python run_env_train_idqn.py 完成训练。")
+
+    # ── 运行所有策略 ──────────────────────────────────────────────────────
     strategies = ["random", "round_robin", "least_loaded", "best_fit", "energy_greedy"]
+    if idqn_instance is not None:
+        strategies.append("idqn")
+
     for s in strategies:
         print(f"正在运行策略: {s}...")
         try:
-            run_experiment(s)
+            run_experiment(s, idqn=idqn_instance if s == "idqn" else None)
         except Exception as e:
             print(f"运行 {s} 时出错: {e}")
             import traceback

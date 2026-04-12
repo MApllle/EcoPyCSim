@@ -1,0 +1,166 @@
+"""
+IDQN 训练脚本
+=============
+Independent DQN baseline：两个 agent 各自独立 Q-learning，无 centralized critic。
+结构镜像 run_env_train_maddpg.py，方便公平对比超参数。
+
+用法：
+    python run_env_train_idqn.py
+"""
+
+import os
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+from env import cloud_scheduling_v0
+from schedulers.marl.idqn.IDQN import IDQN
+
+
+# ── 环境 & 维度信息 ──────────────────────────────────────────────────────────
+
+def set_env(num_jobs, num_server_farms, num_servers):
+    env = cloud_scheduling_v0.CloudSchedulingEnv(
+        num_jobs, num_server_farms, num_servers
+    )
+    env.reset()
+
+    dim_info = {}
+    for agent_id in env.agents:
+        obs_space = env.observation_space(agent_id)
+        dim_info[agent_id] = {
+            'obs_shape': {key: space.shape for key, space in obs_space.spaces.items()},
+            'action_dim': env.action_space(agent_id).n,
+        }
+    return env, dim_info
+
+
+# ── 超参数（与 MADDPG 脚本保持一致，方便公平对比）───────────────────────────
+
+num_jobs         = 300
+num_server_farms = 30
+num_servers      = 210
+
+episode_num      = 10
+random_steps     = int(num_jobs * 0.1)   # 前 30 步纯随机探索
+learn_interval   = 5
+capacity         = int(1e6)
+batch_size       = 1024
+lr               = 0.0005                # DQN 只有一个网络
+gamma            = 0.9
+tau              = 0.1
+
+# Epsilon-greedy 衰减：在前半段 episodes 的所有步内线性衰减
+eps_start        = 1.0
+eps_end          = 0.01
+eps_decay_steps  = num_jobs * episode_num * 0.5   # 1500 步后达到最小值
+
+# ── 结果目录 ─────────────────────────────────────────────────────────────────
+
+res_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results', 'idqn')
+os.makedirs(res_dir, exist_ok=True)
+reward_file_path = os.path.join(res_dir, 'reward.txt')
+
+# ── 初始化 ───────────────────────────────────────────────────────────────────
+
+env, dim_info = set_env(num_jobs, num_server_farms, num_servers)
+
+idqn = IDQN(
+    dim_info   = dim_info,
+    capacity   = capacity,
+    batch_size = batch_size,
+    lr         = lr,
+    res_dir    = res_dir,
+)
+
+episode_rewards = {agent_id: np.zeros(episode_num) for agent_id in env.agents}
+global_step = 0   # 用于 epsilon 衰减计算
+
+
+# ── 训练循环 ─────────────────────────────────────────────────────────────────
+
+for episode in range(episode_num):
+    obs, info = env.reset()
+    agent_reward = {agent_id: 0.0 for agent_id in env.agents}
+    step = 0
+
+    while env.agents:
+        step       += 1
+        global_step += 1
+
+        # 计算当前 epsilon
+        if global_step <= random_steps:
+            epsilon = 1.0
+        else:
+            decay_progress = min(1.0, (global_step - random_steps) / eps_decay_steps)
+            epsilon = eps_start - (eps_start - eps_end) * decay_progress
+
+        action = idqn.select_action(obs, epsilon=epsilon)
+
+        next_obs, reward, terminated, truncated, info = env.step(action)
+        done = {
+            agent_id: terminated[agent_id] or truncated[agent_id]
+            for agent_id in env.agents
+        }
+
+        idqn.add(obs, action, reward, next_obs, done)
+
+        for agent_id, r in reward.items():
+            agent_reward[agent_id] += r
+
+        obs = next_obs
+
+        if global_step > random_steps and global_step % learn_interval == 0:
+            idqn.learn(batch_size, gamma)
+            idqn.update_target(tau)
+
+        if all(done.values()):
+            break
+
+    # 记录本 episode 奖励
+    for agent_id, r in agent_reward.items():
+        episode_rewards[agent_id][episode] = r
+
+    with open(reward_file_path, 'a') as f:
+        f.write(
+            f"episode {episode + 1}, "
+            f"server_farm reward: {agent_reward['server_farm']:.4f}, "
+            f"server reward: {agent_reward['server']:.4f}\n"
+        )
+
+    sum_reward = sum(agent_reward.values())
+    print(
+        f"[IDQN] episode {episode + 1:3d}/{episode_num}  "
+        f"eps={epsilon:.3f}  "
+        f"server_farm={agent_reward['server_farm']:8.4f}  "
+        f"server={agent_reward['server']:8.4f}  "
+        f"sum={sum_reward:8.4f}"
+    )
+
+    idqn.save(episode_rewards)
+
+print(f"\n训练完成，模型已保存到 {res_dir}/model.pt")
+
+
+# ── 学习曲线绘图 ──────────────────────────────────────────────────────────────
+
+def get_running_reward(arr: np.ndarray, window: int = 5) -> np.ndarray:
+    running = np.zeros_like(arr)
+    for i in range(len(arr)):
+        start = max(0, i - window + 1)
+        running[i] = np.mean(arr[start:i + 1])
+    return running
+
+
+fig, ax = plt.subplots()
+x = range(1, episode_num + 1)
+for agent_id, rewards in episode_rewards.items():
+    ax.plot(x, rewards, label=f'{agent_id}')
+    ax.plot(x, get_running_reward(rewards), linestyle='--',
+            label=f'{agent_id} (running avg)')
+ax.legend()
+ax.set_xlabel('Episode')
+ax.set_ylabel('Reward')
+ax.set_title('IDQN Training Performance')
+fig.savefig(os.path.join(res_dir, 'IDQN_performance.png'))
+print(f"学习曲线已保存到 {res_dir}/IDQN_performance.png")
