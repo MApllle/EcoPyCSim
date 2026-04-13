@@ -1,0 +1,10 @@
+episode 1, server_farm reward: 512.9800, server reward: 1011.3300
+episode 2, server_farm reward: -169.5800, server reward: -345.4300
+episode 3, server_farm reward: -163.8100, server reward: -335.1100
+episode 4, server_farm reward: -148.9900, server reward: -306.2900
+episode 5, server_farm reward: -107.6900, server reward: -222.4900
+episode 6, server_farm reward: -136.7000, server reward: -280.5000
+episode 7, server_farm reward: -102.8600, server reward: -217.2200
+episode 8, server_farm reward: -175.3700, server reward: -360.4300
+episode 9, server_farm reward: -69.4400, server reward: -146.2900
+episode 10, server_farm reward: -66.8800, server reward: -141.1800
