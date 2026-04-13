@@ -7,6 +7,33 @@ import torch
 from env.cloud_scheduling import CloudSchedulingEnv
 
 
+NUM_JOBS = 300
+NUM_FARMS = 30
+NUM_SERVERS = 210
+NUM_SEEDS = 5
+
+
+def _build_dim_info(num_jobs=NUM_JOBS, num_farms=NUM_FARMS, num_servers=NUM_SERVERS):
+    env = CloudSchedulingEnv(num_jobs=num_jobs, num_server_farms=num_farms, num_servers=num_servers)
+    env.reset()
+    dim_info = {
+        agent_id: {
+            "obs_shape": {
+                key: space.shape
+                for key, space in env.observation_space(agent_id).spaces.items()
+            },
+            "action_dim": env.action_space(agent_id).n,
+        }
+        for agent_id in env.agents
+    }
+    env.close()
+    return dim_info
+
+
+def _safe_mean(values):
+    return round(float(np.mean(values)), 4) if values else 0.0
+
+
 def _flatten_obs(obs_dict: dict) -> np.ndarray:
     """将 dict 观测拼接为 1D numpy 数组（键排序，与 IDQN/MADDPG 相同）。"""
     parts = []
@@ -17,9 +44,12 @@ def _flatten_obs(obs_dict: dict) -> np.ndarray:
 
 
 class BaselineEvaluator:
-    def __init__(self, idqn=None, mappo=None):
+    def __init__(self, idqn=None, mappo=None, qmix=None, vdn=None, maddpg=None):
         self.rr_count_farm = 0
         self.rr_count_server = 0
+        self.qmix = qmix
+        self.vdn = vdn
+        self.maddpg = maddpg
         self.idqn = idqn    # 可选：传入已加载的 IDQN 实例
         self.mappo = mappo  # 可选：传入已加载的 MAPPO 实例
 
@@ -95,6 +125,24 @@ class BaselineEvaluator:
                     q_vals = self.idqn.agents[agent].q_net(obs_t)   # (1, act_dim)
                 actions[agent] = q_vals.argmax(dim=1).item()
 
+            elif strategy == "vdn":
+                if self.vdn is None:
+                    raise ValueError("strategy='vdn' requires a loaded VDN instance")
+                actions = self.vdn.select_action(obs_dict, epsilon=0.0)
+                break
+
+            elif strategy == "qmix":
+                if self.qmix is None:
+                    raise ValueError("strategy='qmix' requires a loaded QMIX instance")
+                actions = self.qmix.select_action(obs_dict, epsilon=0.0)
+                break
+
+            elif strategy == "maddpg":
+                if self.maddpg is None:
+                    raise ValueError("strategy='maddpg' requires a loaded MADDPG instance")
+                actions = self.maddpg.select_action(obs_dict)
+                break
+
             else:
                 actions[agent] = action_space.sample()
 
@@ -107,15 +155,16 @@ class BaselineEvaluator:
         actions, _, _, _, _ = self.mappo.collect(obs_dict, deterministic=True)
         return actions
 
-def run_experiment(strategy_name, idqn=None, mappo=None, seed=None):
-    eval_env = CloudSchedulingEnv(num_jobs=100, num_server_farms=5, num_servers=50)
+def run_experiment(strategy_name, idqn=None, mappo=None, qmix=None, vdn=None, maddpg=None, seed=None):
+    eval_env = CloudSchedulingEnv(num_jobs=NUM_JOBS, num_server_farms=NUM_FARMS, num_servers=NUM_SERVERS)
     observations, infos = eval_env.reset(seed=seed)
 
-    evaluator = BaselineEvaluator(idqn=idqn, mappo=mappo)
+    evaluator = BaselineEvaluator(idqn=idqn, mappo=mappo, qmix=qmix, vdn=vdn, maddpg=maddpg)
     total_price = 0
     step_count = 0
-    # Snapshot final-step metrics (overwritten each step; last value = episode end)
     last_info = {}
+    jains_series = []
+    asr_series = []
 
     while eval_env.agents:
         if eval_env.all_jobs_complete:
@@ -133,6 +182,10 @@ def run_experiment(strategy_name, idqn=None, mappo=None, seed=None):
             total_price += sf_info.get("price", 0)
             step_count += 1
             last_info = sf_info
+            if "jains_fairness" in sf_info:
+                jains_series.append(sf_info["jains_fairness"])
+            if "active_server_ratio" in sf_info:
+                asr_series.append(sf_info["active_server_ratio"])
 
             if any(terminations.values()) or any(truncations.values()):
                 break
@@ -141,8 +194,8 @@ def run_experiment(strategy_name, idqn=None, mappo=None, seed=None):
 
     rejected = last_info.get("rejected_tasks_count", 0)
     wall_time = last_info.get("wall_time", 0)
-    jains    = last_info.get("jains_fairness", 0)
-    asr      = last_info.get("active_server_ratio", 0)
+    jains    = _safe_mean(jains_series)
+    asr      = _safe_mean(asr_series)
     her      = last_info.get("her", 0)
     completed = len(last_info.get("completed_job_ids", set()))
 
@@ -152,7 +205,7 @@ def run_experiment(strategy_name, idqn=None, mappo=None, seed=None):
         f"【实验结果】策略: {strategy_name:15} | 步数: {step_count:5} | "
         f"价格: {total_price:.2f} | EET: {eet:.4f} | "
         f"拒绝任务: {rejected:4} | 完成作业: {completed:4} | "
-        f"Jain: {jains:.4f} | ASR: {asr:.4f} | HER: {her:.4f}"
+        f"Jain(mean): {jains:.4f} | ASR(mean): {asr:.4f} | HER(final): {her:.4f}"
     )
     eval_env.close()
 
@@ -169,7 +222,139 @@ def run_experiment(strategy_name, idqn=None, mappo=None, seed=None):
         "her": her,
     }
 
+def _load_marl_agents():
+    agents = {}
+    base = os.path.dirname(os.path.abspath(__file__))
+    dim_info = _build_dim_info()
+    candidates = {
+        "idqn": os.path.join(base, "results", "idqn", "model.pt"),
+        "mappo": os.path.join(base, "results", "mappo", "model.pt"),
+        "qmix": os.path.join(base, "results", "qmix", "model.pt"),
+        "vdn": os.path.join(base, "results", "vdn", "model.pt"),
+        "maddpg": os.path.join(base, "results", "maddpg", "model.pt"),
+    }
+
+    for name, path in candidates.items():
+        if not os.path.exists(path):
+            continue
+        try:
+            if name == "idqn":
+                from schedulers.marl.idqn.IDQN import IDQN
+
+                agents[name] = IDQN.load(dim_info=dim_info, file=path, capacity=1, batch_size=1, lr=5e-4)
+            elif name == "mappo":
+                from schedulers.marl.mappo.MAPPO import MAPPO
+
+                agents[name] = MAPPO.load(
+                    dim_info=dim_info,
+                    file=path,
+                    episode_length=NUM_JOBS,
+                    num_mini_batch=4,
+                    lr=5e-4,
+                    hidden_size=64,
+                )
+            elif name == "qmix":
+                from schedulers.marl.qmix.QMIX import QMIX
+
+                agents[name] = QMIX.load(
+                    dim_info=dim_info,
+                    file=path,
+                    capacity=1,
+                    batch_size=1,
+                    lr=5e-4,
+                    embed_dim=32,
+                )
+            elif name == "vdn":
+                from schedulers.marl.vdn.VDN import VDN
+
+                agents[name] = VDN.load(dim_info=dim_info, file=path, capacity=1, batch_size=1, lr=5e-4)
+            elif name == "maddpg":
+                from schedulers.marl.maddpg.MADDPG import MADDPG
+
+                agents[name] = MADDPG.load(
+                    dim_info=dim_info,
+                    file=path,
+                    capacity=1,
+                    batch_size=1,
+                    actor_lr=5e-4,
+                    critic_lr=5e-4,
+                )
+            print(f"Loaded {name.upper()} model: {path}")
+        except Exception as e:
+            print(f"Skip {name}: failed to load model from {path} ({e})")
+
+    return agents
+
+
+def _run_main():
+    marl_agents = _load_marl_agents()
+    strategies = [
+        "random",
+        "round_robin",
+        "least_loaded",
+        "best_fit",
+        "energy_greedy",
+        "idqn",
+        "vdn",
+        "qmix",
+        "mappo",
+        "maddpg",
+    ]
+    marl_names = {"idqn", "vdn", "qmix", "mappo", "maddpg"}
+    strategies = [s for s in strategies if s not in marl_names or s in marl_agents]
+
+    all_results = []
+    for s in strategies:
+        print(f"\nRunning strategy: {s} ({NUM_SEEDS} seeds)...")
+        seed_results = []
+        for seed in range(NUM_SEEDS):
+            try:
+                result = run_experiment(
+                    s,
+                    idqn=marl_agents.get("idqn"),
+                    mappo=marl_agents.get("mappo"),
+                    qmix=marl_agents.get("qmix"),
+                    vdn=marl_agents.get("vdn"),
+                    maddpg=marl_agents.get("maddpg"),
+                    seed=seed,
+                )
+                seed_results.append(result)
+            except Exception as e:
+                print(f"Run failed for {s} seed={seed}: {e}")
+
+        if seed_results:
+            metrics = [
+                "steps",
+                "total_price",
+                "eet",
+                "rejected_tasks",
+                "completed_jobs",
+                "wall_time",
+                "jains_fairness",
+                "active_server_ratio",
+                "her",
+            ]
+            agg = {"strategy": s}
+            for metric in metrics:
+                vals = [r[metric] for r in seed_results]
+                agg[f"{metric}_mean"] = round(float(np.mean(vals)), 4)
+                agg[f"{metric}_std"] = round(float(np.std(vals)), 4)
+            all_results.append(agg)
+
+    if all_results:
+        os.makedirs("results", exist_ok=True)
+        csv_path = os.path.join("results", "exp1_baseline_comparison.csv")
+        fieldnames = list(all_results[0].keys())
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(all_results)
+        print(f"\nSaved results to {csv_path}")
+
+
 if __name__ == "__main__":
+    _run_main()
+    raise SystemExit(0)
     # ── 尝试加载已训练的 IDQN 模型 ─────────────────────────────────────────
     idqn_instance = None
     idqn_model_path = os.path.join(

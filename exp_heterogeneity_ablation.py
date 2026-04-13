@@ -26,9 +26,9 @@ SERVER_MIXES = {
     "modern":   {"old": 0.10, "mid": 0.20, "new": 0.70},
 }
 
-NUM_JOBS    = 100
-NUM_FARMS   = 5
-NUM_SERVERS = 50
+NUM_JOBS    = 300
+NUM_FARMS   = 30
+NUM_SERVERS = 210
 NUM_SEEDS   = 5
 RESULTS_DIR = "results"
 
@@ -43,11 +43,31 @@ def _flatten_obs(obs_dict):
     return np.array(parts, dtype=np.float32)
 
 
+def _build_dim_info():
+    env = CloudSchedulingEnv(NUM_JOBS, NUM_FARMS, NUM_SERVERS)
+    env.reset()
+    dim_info = {
+        a: {
+            "obs_shape": {k: sp.shape for k, sp in env.observation_space(a).spaces.items()},
+            "action_dim": env.action_space(a).n,
+        }
+        for a in env.agents
+    }
+    env.close()
+    return dim_info
+
+
+def _safe_mean(values):
+    return round(float(np.mean(values)), 4) if values else 0.0
+
+
 def _run_episode(strategy_name, agent_obj, env, seed=None):
     obs, infos = env.reset(seed=seed)
     total_price = 0
     step_count  = 0
     last_info   = {}
+    jains_series = []
+    asr_series = []
 
     rr_farm = 0
     rr_srv  = 0
@@ -91,8 +111,20 @@ def _run_episode(strategy_name, agent_obj, env, seed=None):
                     q = agent_obj.agents[agent].q_net(t)
                 actions[agent] = q.argmax(dim=1).item()
 
+            elif strategy_name == "vdn":
+                actions = agent_obj.select_action(obs, epsilon=0.0)
+                break
+
+            elif strategy_name == "qmix":
+                actions = agent_obj.select_action(obs, epsilon=0.0)
+                break
+
             elif strategy_name == "mappo":
                 pass  # handled outside loop
+
+            elif strategy_name == "maddpg":
+                actions = agent_obj.select_action(obs)
+                break
 
             else:
                 actions[agent] = env.action_space(agent).sample()
@@ -106,6 +138,10 @@ def _run_episode(strategy_name, agent_obj, env, seed=None):
             total_price += sf.get("price", 0)
             step_count  += 1
             last_info    = sf
+            if "jains_fairness" in sf:
+                jains_series.append(sf["jains_fairness"])
+            if "active_server_ratio" in sf:
+                asr_series.append(sf["active_server_ratio"])
             if any(terminations.values()) or any(truncations.values()):
                 break
         except AssertionError:
@@ -120,8 +156,8 @@ def _run_episode(strategy_name, agent_obj, env, seed=None):
         "rejected_tasks":      rejected,
         "completed_jobs":      completed,
         "wall_time":           last_info.get("wall_time", 0),
-        "jains_fairness":      last_info.get("jains_fairness", 0),
-        "active_server_ratio": last_info.get("active_server_ratio", 0),
+        "jains_fairness":      _safe_mean(jains_series),
+        "active_server_ratio": _safe_mean(asr_series),
         "her":                 last_info.get("her", 0),
     }
 
@@ -130,17 +166,13 @@ def _load_marl_agents():
     """Attempt to load all trained MARL models. Returns dict name→agent_obj."""
     agents = {}
     base = os.path.dirname(os.path.abspath(__file__))
+    dim_info = _build_dim_info()
 
     # IDQN
     path = os.path.join(base, "results", "idqn", "model.pt")
     if os.path.exists(path):
         try:
             from schedulers.marl.idqn.IDQN import IDQN
-            _env = CloudSchedulingEnv(NUM_JOBS, NUM_FARMS, NUM_SERVERS)
-            _env.reset()
-            dim_info = {a: {"obs_shape": {k: sp.shape for k, sp in _env.observation_space(a).spaces.items()},
-                            "action_dim": _env.action_space(a).n} for a in _env.agents}
-            _env.close()
             agents["idqn"] = IDQN.load(dim_info=dim_info, file=path, capacity=1, batch_size=1, lr=5e-4)
             print(f"  已加载 IDQN: {path}")
         except Exception as e:
@@ -151,13 +183,8 @@ def _load_marl_agents():
     if os.path.exists(path):
         try:
             from schedulers.marl.mappo.MAPPO import MAPPO
-            _env = CloudSchedulingEnv(NUM_JOBS, NUM_FARMS, NUM_SERVERS)
-            _env.reset()
-            dim_info = {a: {"obs_shape": {k: sp.shape for k, sp in _env.observation_space(a).spaces.items()},
-                            "action_dim": _env.action_space(a).n} for a in _env.agents}
-            _env.close()
             agents["mappo"] = MAPPO.load(dim_info=dim_info, file=path, episode_length=NUM_JOBS,
-                                          num_mini_batch=1, lr=5e-4, hidden_size=64)
+                                          num_mini_batch=4, lr=5e-4, hidden_size=64)
             print(f"  已加载 MAPPO: {path}")
         except Exception as e:
             print(f"  MAPPO 加载失败: {e}")
@@ -167,12 +194,7 @@ def _load_marl_agents():
     if os.path.exists(path):
         try:
             from schedulers.marl.qmix.QMIX import QMIX
-            _env = CloudSchedulingEnv(NUM_JOBS, NUM_FARMS, NUM_SERVERS)
-            _env.reset()
-            dim_info = {a: {"obs_shape": {k: sp.shape for k, sp in _env.observation_space(a).spaces.items()},
-                            "action_dim": _env.action_space(a).n} for a in _env.agents}
-            _env.close()
-            agents["qmix"] = QMIX.load(dim_info=dim_info, file=path, capacity=1, batch_size=1, lr=5e-4)
+            agents["qmix"] = QMIX.load(dim_info=dim_info, file=path, capacity=1, batch_size=1, lr=5e-4, embed_dim=32)
             print(f"  已加载 QMIX: {path}")
         except Exception as e:
             print(f"  QMIX 加载失败: {e}")
@@ -182,11 +204,6 @@ def _load_marl_agents():
     if os.path.exists(path):
         try:
             from schedulers.marl.vdn.VDN import VDN
-            _env = CloudSchedulingEnv(NUM_JOBS, NUM_FARMS, NUM_SERVERS)
-            _env.reset()
-            dim_info = {a: {"obs_shape": {k: sp.shape for k, sp in _env.observation_space(a).spaces.items()},
-                            "action_dim": _env.action_space(a).n} for a in _env.agents}
-            _env.close()
             agents["vdn"] = VDN.load(dim_info=dim_info, file=path, capacity=1, batch_size=1, lr=5e-4)
             print(f"  已加载 VDN: {path}")
         except Exception as e:
@@ -197,13 +214,8 @@ def _load_marl_agents():
     if os.path.exists(path):
         try:
             from schedulers.marl.maddpg.MADDPG import MADDPG
-            _env = CloudSchedulingEnv(NUM_JOBS, NUM_FARMS, NUM_SERVERS)
-            _env.reset()
-            dim_info = {a: {"obs_shape": {k: sp.shape for k, sp in _env.observation_space(a).spaces.items()},
-                            "action_dim": _env.action_space(a).n} for a in _env.agents}
-            _env.close()
             agents["maddpg"] = MADDPG.load(dim_info=dim_info, file=path, capacity=1, batch_size=1,
-                                             actor_lr=1e-4, critic_lr=1e-4)
+                                             actor_lr=5e-4, critic_lr=5e-4)
             print(f"  已加载 MADDPG: {path}")
         except Exception as e:
             print(f"  MADDPG 加载失败: {e}")

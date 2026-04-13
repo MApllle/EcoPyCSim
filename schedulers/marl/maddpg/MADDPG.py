@@ -16,14 +16,19 @@ from schedulers.marl.maddpg.Buffer import Buffer
 
 def setup_logger(filename):
     """ set up logger with filename. """
-    logger = logging.getLogger()
+    logger = logging.getLogger(f"maddpg_{filename}")
     logger.setLevel(logging.INFO)
+    logger.handlers.clear()
 
-    handler = logging.FileHandler(filename, mode='w')
-    handler.setLevel(logging.INFO)
+    try:
+        handler = logging.FileHandler(filename, mode='w')
+        handler.setLevel(logging.INFO)
+    except OSError:
+        handler = logging.NullHandler()
 
     formatter = logging.Formatter('%(asctime)s--%(levelname)s--%(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    handler.setFormatter(formatter)
+    if hasattr(handler, "setFormatter"):
+        handler.setFormatter(formatter)
 
     logger.addHandler(handler)
     return logger

@@ -131,6 +131,8 @@ def run_episode_profiled(env: CloudSchedulingEnv, seed: int) -> dict[str, Any]:
     steps = 0
     sum_action_s = 0.0
     sum_step_s = 0.0
+    asr_samples = []
+    jain_samples = []
 
     while env.agents:
         t0 = time.perf_counter()
@@ -145,6 +147,10 @@ def run_episode_profiled(env: CloudSchedulingEnv, seed: int) -> dict[str, Any]:
 
         sf_info = infos.get("server_farm", {})
         total_energy += float(sf_info.get("price", 0.0))
+        if "active_server_ratio" in sf_info:
+            asr_samples.append(float(sf_info["active_server_ratio"]))
+        if "jains_fairness" in sf_info:
+            jain_samples.append(float(sf_info["jains_fairness"]))
 
         if all(terminations.values()):
             env.close()
@@ -161,6 +167,8 @@ def run_episode_profiled(env: CloudSchedulingEnv, seed: int) -> dict[str, Any]:
         "total_energy_cost": total_energy,
         "sum_action_s": sum_action_s,
         "sum_step_s": sum_step_s,
+        "mean_active_server_ratio": float(statistics.mean(asr_samples)) if asr_samples else 0.0,
+        "mean_jains_fairness": float(statistics.mean(jain_samples)) if jain_samples else 0.0,
     }
 
 
@@ -203,6 +211,8 @@ def benchmark_scale(
     m_init, s_init = mean_std("total_init_s")
     m_act, _ = mean_std("sum_action_s")
     m_step, _ = mean_std("sum_step_s")
+    m_asr, s_asr = mean_std("mean_active_server_ratio")
+    m_jain, s_jain = mean_std("mean_jains_fairness")
 
     ms_per_rep = [
         (row["episode_wall_s"] / row["steps"] * 1000.0) if row["steps"] > 0 else 0.0
@@ -229,6 +239,10 @@ def benchmark_scale(
         "std_total_energy": s_en,
         "mean_init_s": m_init,
         "std_init_s": s_init,
+        "mean_active_server_ratio": m_asr,
+        "std_active_server_ratio": s_asr,
+        "mean_jains_fairness": m_jain,
+        "std_jains_fairness": s_jain,
         "ms_per_step_mean": ms_per_step,
         "std_ms_per_step": ms_std,
         "ms_action_per_step": ms_action_per_step,

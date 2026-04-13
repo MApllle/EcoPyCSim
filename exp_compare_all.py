@@ -255,6 +255,25 @@ def plot_exp2(csv_path):
 
 # ── Learning curves (from training .npy reward logs) ────────────────────────
 
+def _load_reward_series(path):
+    if path.endswith(".npy"):
+        arr = np.load(path)
+        return np.asarray(arr, dtype=float).flatten()
+
+    rewards = []
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            nums = []
+            for token in line.replace(",", " ").split():
+                try:
+                    nums.append(float(token))
+                except ValueError:
+                    continue
+            if nums:
+                rewards.append(sum(nums[-2:]) if len(nums) >= 2 else nums[-1])
+    return np.asarray(rewards, dtype=float)
+
+
 def plot_learning_curves(results_dir="results"):
     """
     Overlay learning curves for all algorithms that saved reward arrays as
@@ -275,10 +294,14 @@ def plot_learning_curves(results_dir="results"):
         candidates = [
             os.path.join(results_dir, subdir, f"{algo}_rewards.npy"),
             os.path.join(results_dir, subdir, "rewards.npy"),
+            os.path.join(results_dir, subdir, "reward.txt"),
+            os.path.join(results_dir, subdir, "rewards.txt"),
         ]
         for path in candidates:
             if os.path.exists(path):
-                rewards = np.load(path)
+                rewards = _load_reward_series(path)
+                if rewards.size == 0:
+                    continue
                 window  = min(10, len(rewards) // 5 + 1)
                 smoothed = np.convolve(rewards, np.ones(window) / window, mode="valid")
                 color = STRATEGY_COLORS.get(algo, "#999999")
