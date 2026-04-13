@@ -1,3 +1,4 @@
+import csv
 import os
 
 import numpy as np
@@ -106,17 +107,18 @@ class BaselineEvaluator:
         actions, _, _, _, _ = self.mappo.collect(obs_dict, deterministic=True)
         return actions
 
-def run_experiment(strategy_name, idqn=None, mappo=None):
+def run_experiment(strategy_name, idqn=None, mappo=None, seed=None):
     eval_env = CloudSchedulingEnv(num_jobs=100, num_server_farms=5, num_servers=50)
-    observations, infos = eval_env.reset()
+    observations, infos = eval_env.reset(seed=seed)
 
     evaluator = BaselineEvaluator(idqn=idqn, mappo=mappo)
     total_price = 0
     step_count = 0
+    # Snapshot final-step metrics (overwritten each step; last value = episode end)
+    last_info = {}
 
     while eval_env.agents:
         if eval_env.all_jobs_complete:
-            print(f"检测到所有任务已完成，正常结束模拟。")
             break
 
         if strategy_name == "mappo":
@@ -127,21 +129,45 @@ def run_experiment(strategy_name, idqn=None, mappo=None):
         try:
             observations, rewards, terminations, truncations, infos = eval_env.step(actions)
 
-            # 累计 Price
-            current_price = infos.get("server_farm", {}).get("price", 0)
-            total_price += current_price
+            sf_info = infos.get("server_farm", {})
+            total_price += sf_info.get("price", 0)
             step_count += 1
+            last_info = sf_info
 
-            # 如果任何一个 agent 终止了，也退出
             if any(terminations.values()) or any(truncations.values()):
                 break
         except AssertionError:
-            # 万一还是触发了那个断言，我们直接捕获它并当作模拟结束
-            print(f"环境触发结束断言，停止当前策略。")
             break
 
-    print(f"【实验结果】策略: {strategy_name:15} | 总步数: {step_count:5} | 总价格: {total_price:.2f}")
+    rejected = last_info.get("rejected_tasks_count", 0)
+    wall_time = last_info.get("wall_time", 0)
+    jains    = last_info.get("jains_fairness", 0)
+    asr      = last_info.get("active_server_ratio", 0)
+    her      = last_info.get("her", 0)
+    completed = len(last_info.get("completed_job_ids", set()))
+
+    eet = round(total_price / max(completed, 1), 4)
+
+    print(
+        f"【实验结果】策略: {strategy_name:15} | 步数: {step_count:5} | "
+        f"价格: {total_price:.2f} | EET: {eet:.4f} | "
+        f"拒绝任务: {rejected:4} | 完成作业: {completed:4} | "
+        f"Jain: {jains:.4f} | ASR: {asr:.4f} | HER: {her:.4f}"
+    )
     eval_env.close()
+
+    return {
+        "strategy": strategy_name,
+        "steps": step_count,
+        "total_price": round(total_price, 4),
+        "eet": eet,
+        "rejected_tasks": rejected,
+        "completed_jobs": completed,
+        "wall_time": wall_time,
+        "jains_fairness": jains,
+        "active_server_ratio": asr,
+        "her": her,
+    }
 
 if __name__ == "__main__":
     # ── 尝试加载已训练的 IDQN 模型 ─────────────────────────────────────────
@@ -221,15 +247,45 @@ if __name__ == "__main__":
     if mappo_instance is not None:
         strategies.append("mappo")
 
+    NUM_SEEDS = 5
+    all_results = []
+
     for s in strategies:
-        print(f"正在运行策略: {s}...")
-        try:
-            run_experiment(
-                s,
-                idqn=idqn_instance if s == "idqn" else None,
-                mappo=mappo_instance if s == "mappo" else None,
-            )
-        except Exception as e:
-            print(f"运行 {s} 时出错: {e}")
-            import traceback
-            traceback.print_exc()
+        print(f"\n正在运行策略: {s} ({NUM_SEEDS} seeds)...")
+        seed_results = []
+        for seed in range(NUM_SEEDS):
+            try:
+                result = run_experiment(
+                    s,
+                    idqn=idqn_instance if s == "idqn" else None,
+                    mappo=mappo_instance if s == "mappo" else None,
+                    seed=seed,
+                )
+                seed_results.append(result)
+            except Exception as e:
+                print(f"运行 {s} seed={seed} 时出错: {e}")
+                import traceback
+                traceback.print_exc()
+
+        if seed_results:
+            # Aggregate across seeds
+            metrics = ["steps", "total_price", "eet", "rejected_tasks",
+                       "completed_jobs", "wall_time", "jains_fairness",
+                       "active_server_ratio", "her"]
+            agg = {"strategy": s}
+            for m in metrics:
+                vals = [r[m] for r in seed_results]
+                agg[f"{m}_mean"] = round(float(np.mean(vals)), 4)
+                agg[f"{m}_std"]  = round(float(np.std(vals)),  4)
+            all_results.append(agg)
+
+    # Write aggregated results to CSV
+    if all_results:
+        os.makedirs("results", exist_ok=True)
+        csv_path = os.path.join("results", "exp1_baseline_comparison.csv")
+        fieldnames = list(all_results[0].keys())
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(all_results)
+        print(f"\n结果已保存至 {csv_path}")

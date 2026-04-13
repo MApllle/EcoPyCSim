@@ -31,7 +31,10 @@ class CloudSchedulingEnv(ParallelEnv):
     self.hetero_weight      = hetero_weight
     self.server_proportions = server_proportions
     self._last_hetero_reward = 0.0
-    
+    # HER accumulators (reset each episode)
+    self._her_numerator = 0.0   # Σ task_cpu × efficiency_tier (scheduled tasks)
+    self._her_denominator = 0.0  # Σ task_cpu (scheduled tasks)
+
     self.wall_time = 0
     self.timeline = Timeline()
     
@@ -131,6 +134,8 @@ class CloudSchedulingEnv(ParallelEnv):
     self.prev_server_farm_reward = 0
     self.prev_server_reward = 0
     self._last_hetero_reward = 0.0
+    self._her_numerator = 0.0
+    self._her_denominator = 0.0
     
     self.active_job_ids = []
     self.completed_job_ids = set()
@@ -196,6 +201,40 @@ class CloudSchedulingEnv(ParallelEnv):
   def num_rejected_jobs(self):
     return len(self.rejected_job_ids)
   
+  def _compute_jains_fairness(self) -> float:
+    """Jain's Fairness Index over all servers' CPU utilization.
+    J = (Σu_i)² / (n × Σu_i²).  Returns 1.0 when all servers are idle."""
+    utils = [
+      server.cpu_utilization_rate
+      for farm in self.server_farms.values()
+      for server in farm.servers.values()
+    ]
+    n = len(utils)
+    total = sum(utils)
+    if n == 0 or total == 0:
+      return 1.0
+    return round((total ** 2) / (n * sum(u ** 2 for u in utils)), 4)
+
+  def _compute_active_server_ratio(self) -> float:
+    """Fraction of servers currently handling at least one VM."""
+    all_servers = [
+      server
+      for farm in self.server_farms.values()
+      for server in farm.servers.values()
+    ]
+    if not all_servers:
+      return 0.0
+    active = sum(1 for s in all_servers if s.cpu_utilization_rate > 0)
+    return round(active / len(all_servers), 4)
+
+  def _compute_her(self) -> float:
+    """Heterogeneity Exploitation Rate:
+    HER = Σ(task_cpu × efficiency_tier) / Σ(task_cpu) for all scheduled tasks.
+    Measures how well CPU-intensive tasks are routed to high-efficiency servers."""
+    if self._her_denominator == 0:
+      return 0.0
+    return round(self._her_numerator / self._her_denominator, 4)
+
   def info(self, agent):
     if agent == "server_farm":
       info = {
@@ -206,6 +245,10 @@ class CloudSchedulingEnv(ParallelEnv):
       "wall_time": self.wall_time,
       "price": round(sum(server_farm.get_price for server_farm in self.server_farms.values()), 2),
       "hetero_reward_total": self._last_hetero_reward,
+      # New metrics
+      "jains_fairness": self._compute_jains_fairness(),
+      "active_server_ratio": self._compute_active_server_ratio(),
+      "her": self._compute_her(),
       }
       return info
     elif agent == "server":
@@ -268,6 +311,9 @@ class CloudSchedulingEnv(ParallelEnv):
         self._insert_task_departure_event(task)
         self.scheduled_tasks.add(task)
         self.schedulable_tasks = False
+        # Accumulate HER numerator/denominator
+        self._her_numerator += task.cpu * server.efficiency_tier
+        self._her_denominator += task.cpu
       else:
         self._process_task_rejection(task)
     else:
