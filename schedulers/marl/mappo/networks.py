@@ -1,6 +1,5 @@
 """
 MAPPO Actor / Critic 网络。
-简化自 on-policy-main r_actor_critic.py：
   - 去除 gym.Space 依赖，直接接受 obs_dim / act_dim 整数
   - 去除 CNN 分支（环境使用向量观察）
   - 默认不使用 RNN（use_rnn=False），可选开启

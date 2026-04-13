@@ -5,7 +5,7 @@ MAPPO（Multi-Agent Proximal Policy Optimization）原生实现。
   - 每个 agent 持有独立 Actor（支持异构观察维度）
   - 所有 agent 共享一个集中式 Critic（输入为所有 agent 观察拼接）
   - On-Policy：每个 episode 收集完整轨迹 → GAE → 多轮 PPO 更新
-  - 不依赖 on-policy-main/ 外部仓库
+  - 自包含实现，不依赖外部仓库
 
 参考文献：
   Lowe et al., 2017 (MADDPG)  — 集中式 Critic 思想

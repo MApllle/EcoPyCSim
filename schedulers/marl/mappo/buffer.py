@@ -1,10 +1,9 @@
 """
 MAPPO 轨迹缓冲区（On-Policy Rollout Buffer）。
-简化自 on-policy-main/onpolicy/utils/shared_buffer.py：
-  - 去除多线程支持（n_rollout_threads = 1）
-  - 去除 gym.Space 依赖，直接接受整数维度
-  - 保留 GAE 优势估计 / n-step 回报计算
-  - 保留 feed_forward_generator 小批量生成器
+  - 单线程（n_rollout_threads = 1）
+  - 直接接受整数维度，无 gym.Space 依赖
+  - 支持 GAE 优势估计 / n-step 回报计算
+  - 支持 feed_forward_generator 小批量生成器
   - 支持异构 agent（不同 obs_dim，用 dict 存储）
 """
 import numpy as np

@@ -1,6 +1,5 @@
 """
 工具函数与 ValueNorm 归一化类。
-从 on-policy-main 移植，去除外部依赖。
 """
 import math
 
@@ -60,7 +59,7 @@ def update_linear_schedule(optimizer, epoch, total_epochs, initial_lr):
 class ValueNorm(nn.Module):
     """
     对值函数目标进行运行均值/方差归一化（去偏指数移动平均）。
-    移植自 on-policy-main/onpolicy/utils/valuenorm.py，接口保持一致。
+    对值函数目标进行运行均值/方差归一化（去偏指数移动平均）。
     """
 
     def __init__(self, input_shape, beta=0.99999, epsilon=1e-5,
