@@ -1,0 +1,564 @@
+import numpy as np
+
+from helper.create_jobs import initialize_user_requests_queue
+from helper.create_server_farm import initialize_server_farms
+from components.timeline import Timeline, TimelineEvent
+
+from gymnasium import spaces
+from pettingzoo import ParallelEnv
+
+class CloudSchedulingEnv(ParallelEnv):
+  def __init__(
+    self,
+    num_jobs,
+    num_server_farms,
+    num_servers,
+    render_mode=None,
+    use_heterogeneity: bool = True,
+    hetero_weight: float = 0.3,
+    server_proportions=None,
+  ):
+
+    self.num_jobs = num_jobs
+    self.num_server_farms = num_server_farms
+    self.num_servers = num_servers
+    assert self.num_servers / self.num_server_farms >= 1, "Server number must be possible to be divided among server farm number."
+    self.server_farm_id = 0
+    self.server_id = 0
+
+    # heterogeneity controls (ablation-friendly)
+    self.use_heterogeneity  = use_heterogeneity
+    self.hetero_weight      = hetero_weight
+    self.server_proportions = server_proportions
+    self._last_hetero_reward = 0.0
+    # HER accumulators (reset each episode)
+    self._her_numerator = 0.0   # Σ task_cpu × efficiency_tier (scheduled tasks)
+    self._her_denominator = 0.0  # Σ task_cpu (scheduled tasks)
+
+    self.wall_time = 0
+    self.timeline = Timeline()
+    
+    self.jobs = {}
+    self.server_farms = {}
+    
+    self.handle_event = {
+      TimelineEvent.Type.JOB_ARRIVAL: self._handle_job_arrival,
+      TimelineEvent.Type.TASK_ARRIVAL: self._handle_task_arrival,
+      TimelineEvent.Type.TASK_DEPARTURE: self._handle_task_departure,
+    }
+    
+    self.agents = ["server_farm", "server"]
+    
+    self.possible_agents = self.agents[:]
+    
+    self.observation_spaces = {}
+    for agent in self.agents:
+      self.observation_spaces[agent] = None
+    
+    self.action_spaces = {}
+    for agent in self.agents:
+      self.action_spaces[agent] = None
+    
+    self.render_mode = render_mode
+  
+  def observation_space(self, agent):
+    if agent == "server_farm":
+      arr_list = np.array([[0.0 for _ in range(server_farm.num_servers)] for server_farm in self.server_farms.values()])
+      shape = arr_list.shape
+      obs = spaces.Dict({
+        "cpus_utilization": spaces.Box(low=0, high=1.0, shape=shape, dtype=float),
+        "efficiency_tiers":  spaces.Box(low=0, high=1.0, shape=shape, dtype=float),
+        "task_cpu": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
+        "task_ram": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
+        "task_deadline": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=float),
+        "wall_time": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=float)
+      })
+      return obs
+    elif agent == "server":
+      first_key = next(iter(self.server_farms.keys()))
+      num_servers = self.server_farms[first_key].num_servers
+      shape = (num_servers,)
+      obs = spaces.Dict({
+        "cpus_utilization": spaces.Box(low=0, high=1, shape=shape, dtype=float),
+        "efficiency_tiers":  spaces.Box(low=0, high=1, shape=shape, dtype=float),
+        "task_cpu": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
+        "task_ram": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
+        "task_deadline": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=float),
+        "wall_time": spaces.Box(low=0, high=np.inf, shape=(1,), dtype=float)
+      })
+      return obs
+  
+  def action_space(self, agent):
+    if agent == "server_farm":
+      return spaces.Discrete(self.num_server_farms)
+    elif agent == "server":
+      return spaces.Discrete(
+        self.server_farms[self.server_farm_id].num_servers)
+  
+  def render(self):
+    pass
+  
+  def reset(self, seed=None, options=None):
+    self.wall_time = 0
+    self.time_limit = 0
+    self.timeline.reset()
+    
+    self.jobs.clear()
+    job_sequence = initialize_user_requests_queue(self.num_jobs, seed)
+    for timeline, job in job_sequence:
+      self.timeline.push(
+        timeline, TimelineEvent(TimelineEvent.Type.JOB_ARRIVAL, data={"job": job})
+      )
+      self.jobs[job.id] = job
+
+    server_farms = initialize_server_farms(
+      self.num_servers, self.num_server_farms, seed,
+      server_proportions=self.server_proportions
+    )
+    for server_farm in server_farms:
+      self.server_farms[server_farm.id] = server_farm
+    
+    self.server_farm_id = 0
+    self.server_id = 0
+    
+    self.observation_spaces = {
+      agent: self.observation_space(agent)
+      for agent in self.agents
+    }
+    
+    self.action_spaces = {
+      agent: self.action_space(agent)
+      for agent in self.agents
+    }
+    
+    self.prev_server_farm_reward = 0
+    self.prev_server_reward = 0
+    self.prev_rejected_tasks_count = 0
+    self.prev_completed_jobs_count = 0
+    self._last_hetero_reward = 0.0
+    self._her_numerator = 0.0
+    self._her_denominator = 0.0
+    
+    self.active_job_ids = []
+    self.completed_job_ids = set()
+    
+    self.rejected_job_ids = set()
+    self.rejected_tasks_count = 0
+    self.task_rejected_status = False
+    
+    self.schedulable_tasks = False
+    self.scheduled_tasks = set()
+    
+    self.scheduled_task_cpu = 0
+    self.scheduled_task_ram = 0
+    self.scheduled_task_deadline = 0
+    
+    self._load_initial_jobs()
+    
+    infos = {agent: self.info(agent) for agent in self.agents}
+    obs = {agent: self._get_observation(agent) for agent in self.agents}
+    return obs, infos
+  
+  def step(self, actions):
+    if self.schedulable_tasks:
+      self._take_action(actions)
+      
+      obs = {agent: self._get_observation(agent) for agent in self.agents}
+      reward = {agent: self._get_reward(agent) for agent in self.agents}
+      terminated = {agent: False for agent in self.agents}
+      truncated = {agent: False for agent in self.agents}
+      infos = {agent: self.info(agent) for agent in self.agents}
+      
+      self.scheduled_task_deadline = 0
+      self.task_rejected_status = False
+      return obs, reward, terminated, truncated, infos
+    
+    # step through timeline until next scheduling event
+    self._resume_simulation()
+    
+    obs = {agent: self._get_observation(agent) for agent in self.agents}
+    reward = {agent: 0 for agent in self.agents}
+    terminated = {agent: False for agent in self.agents}
+    terminate = self.all_jobs_complete
+    if terminate == True:
+      terminated = {agent: True for agent in self.agents}
+    truncated = {agent: False for agent in self.agents}
+    infos = {agent: self.info(agent) for agent in self.agents}
+    
+    return obs, reward, terminated, truncated, infos
+  
+  @property
+  def all_jobs_complete(self):
+    return self.num_completed_jobs == len(self.jobs.keys())
+  
+  @property
+  def num_completed_jobs(self):
+    return len(self.completed_job_ids)
+  
+  @property
+  def num_active_jobs(self):
+    return len(self.active_job_ids)
+  
+  @property
+  def num_rejected_jobs(self):
+    return len(self.rejected_job_ids)
+  
+  def _compute_jains_fairness(self) -> float:
+    """Jain's Fairness Index over all servers' CPU utilization.
+    J = (Σu_i)² / (n × Σu_i²).  Returns 1.0 when all servers are idle."""
+    utils = [
+      server.cpu_utilization_rate
+      for farm in self.server_farms.values()
+      for server in farm.servers.values()
+    ]
+    n = len(utils)
+    total = sum(utils)
+    if n == 0 or total == 0:
+      return 1.0
+    return round((total ** 2) / (n * sum(u ** 2 for u in utils)), 4)
+
+  def _compute_active_server_ratio(self) -> float:
+    """Fraction of servers currently handling at least one VM."""
+    all_servers = [
+      server
+      for farm in self.server_farms.values()
+      for server in farm.servers.values()
+    ]
+    if not all_servers:
+      return 0.0
+    active = sum(1 for s in all_servers if s.cpu_utilization_rate > 0)
+    return round(active / len(all_servers), 4)
+
+  def _compute_her(self) -> float:
+    """Heterogeneity Exploitation Rate:
+    HER = Σ(task_cpu × efficiency_tier) / Σ(task_cpu) for all scheduled tasks.
+    Measures how well CPU-intensive tasks are routed to high-efficiency servers."""
+    if self._her_denominator == 0:
+      return 0.0
+    return round(self._her_numerator / self._her_denominator, 4)
+
+  def info(self, agent):
+    if agent == "server_farm":
+      info = {
+      "active_job_ids": self.active_job_ids,
+      "completed_job_ids": self.completed_job_ids,
+      "rejected_job_ids": self.rejected_job_ids,
+      "rejected_tasks_count": self.rejected_tasks_count,
+      "wall_time": self.wall_time,
+      "price": round(sum(server_farm.get_price for server_farm in self.server_farms.values()), 2),
+      "hetero_reward_total": self._last_hetero_reward,
+      # New metrics
+      "jains_fairness": self._compute_jains_fairness(),
+      "active_server_ratio": self._compute_active_server_ratio(),
+      "her": self._compute_her(),
+      }
+      return info
+    elif agent == "server":
+      return {}
+  
+  def _load_initial_jobs(self):
+    # job arrival (find the schedulable ready tasks)
+    arrived_jobs = []
+    while not self.timeline.empty:
+      wall_time, event = self.timeline.peek()
+      
+      try:
+        job = event.data["job"]
+        arrived_jobs.append((wall_time, job))
+        self.timeline.pop()
+      except KeyError:
+        raise Exception("initial timeline must only contain jobs")
+    
+    for wall_time, job in arrived_jobs:
+      self._handle_job_arrival(job, wall_time)
+    self.wall_time = arrived_jobs[0][0]
+
+    arrived_jobs.clear()
+    self.schedulable_tasks = True
+  
+  def _take_action(self, actions):
+    # agents take action of choosing which server farm and server to place the task
+    self.server_farm_id = actions["server_farm"]
+    self.server_id = actions["server"]
+    
+    server_farm = self.server_farms[self.server_farm_id]
+    server = server_farm.servers[str(self.server_id)]
+    
+    # pseudocode:
+    # pop task arrival event from Timeline
+    # schedule the task to the chosen Server Farm in chosen Server
+    # perform bookkeeping on task status in job in active job
+    # add the task departure event after it has been scheduled
+    # accept/reject task happens here if chosen server in server farm is valid   
+    self.wall_time, event = self.timeline.pop()
+    
+    try:
+      task = event.data["task_arrival"]
+    except KeyError:
+      raise Exception("scheduling action timeline must only contain task arrival events")
+    
+    if task.job_id in self.rejected_job_ids:
+      self._process_task_rejection(task)
+      return
+    
+    self._handle_task_arrival(task)
+    
+    if server.is_available:
+      scheduled = server.host_task_in_server(task)
+      if scheduled:
+        self.scheduled_task_cpu = task.cpu
+        self.scheduled_task_ram = task.ram
+        self.scheduled_task_deadline = self.wall_time + task.runtime
+        self._process_task_scheduling(task)
+        self._insert_task_departure_event(task)
+        self.scheduled_tasks.add(task)
+        self.schedulable_tasks = False
+        # Accumulate HER numerator/denominator
+        self._her_numerator += task.cpu * server.efficiency_tier
+        self._her_denominator += task.cpu
+      else:
+        self._process_task_rejection(task)
+    else:
+      # reject task, drop the subsequent tasks from the job from the system.
+      self._process_task_rejection(task)
+  
+  def _resume_simulation(self):
+    """resumes the simulation until either there are new scheduling
+    decisions to be made, or it's done.
+    """
+    assert not self.timeline.empty, print(
+      print("rejected job ids: ", self.rejected_job_ids),
+      print("rejected tasks count: ", self.rejected_tasks_count),
+      print("current active job ids: ", self.active_job_ids),
+      print("status of tasks in the current active job ids: "),
+      print([task.status for active_job_id in self.active_job_ids for task in self.jobs[active_job_id].tasks.values()]),
+      print("current jobs in the simulation: ", [key for key in self.jobs.keys()]),
+      print("completed job ids:", self.completed_job_ids),
+      self.timeline.print_queue()
+    )
+    
+    while not self.timeline.empty:
+      # handling only two types of event here:
+      # task arrival (go to scheduling mode)
+      # task departure (remove task from the cloud system)
+      self.wall_time, event = self.timeline.peek()
+      #print("wall time: ", self.wall_time, "event: ", event)
+      try:
+        task = event.data["task_arrival"]
+        self.schedulable_tasks = True
+      except KeyError:
+        self.handle_event[event.type](**event.data)
+        self.timeline.pop()
+      
+      schedulable_tasks = self.schedulable_tasks
+      if schedulable_tasks:
+        break
+
+  def _get_observation(self, agent):
+    if agent == "server_farm":
+      cpus_util = np.array([self.server_farms[key].curr_cpus_util for key in self.server_farms.keys()])
+      eff_tiers = np.array([self.server_farms[key].efficiency_tiers for key in self.server_farms.keys()])
+      task_cpu = np.array(self.scheduled_task_cpu).flatten()
+      task_ram = np.array(self.scheduled_task_ram).flatten()
+      task_deadline = np.array(self.scheduled_task_deadline).flatten()
+
+      obs = {
+        "cpus_utilization": cpus_util,
+        "efficiency_tiers":  eff_tiers,
+        "task_cpu": task_cpu,
+        "task_ram": task_ram,
+        "task_deadline": task_deadline,
+        "wall_time": np.array([self.wall_time])
+        }
+      return obs
+    elif agent == "server":
+      server_farm = self.server_farms[self.server_farm_id]
+      cpus_util = np.array(server_farm.curr_cpus_util)
+      eff_tiers = np.array(server_farm.efficiency_tiers)
+      task_cpu = np.array(self.scheduled_task_cpu).flatten()
+      task_ram = np.array(self.scheduled_task_ram).flatten()
+      task_deadline = np.array(self.scheduled_task_deadline).flatten()
+
+      obs = {
+        "cpus_utilization": cpus_util,
+        "efficiency_tiers":  eff_tiers,
+        "task_cpu": task_cpu,
+        "task_ram": task_ram,
+        "task_deadline": task_deadline,
+        "wall_time": np.array([self.wall_time])
+        }
+      return obs
+
+  def _get_reward(self, agent):
+    # Shared reward for overall system efficiency
+    curr_energy_cost = sum(self.server_farms[key].get_price for key in self.server_farms.keys())
+    prev_energy_cost = self.prev_server_farm_reward
+    if not self.task_rejected_status and prev_energy_cost > 0:
+      denom = max(abs(prev_energy_cost), 1.0)
+      energy_saving_reward = (prev_energy_cost - curr_energy_cost) / denom
+      energy_saving_reward = float(np.clip(energy_saving_reward, -1.0, 1.0))
+    else:
+      # Do not grant energy-related reward on rejection, and avoid a distorted
+      # first-step reward when the previous cost has not been initialized yet.
+      energy_saving_reward = 0.0
+
+    # Reward shaping with explicit service-priority:
+    # 1) strong penalty for newly rejected tasks,
+    # 2) small positive signal for successful placement decisions,
+    # 3) mild bonus when a full job gets completed.
+    rejected_delta = max(0, self.rejected_tasks_count - self.prev_rejected_tasks_count)
+    completed_delta = max(0, self.num_completed_jobs - self.prev_completed_jobs_count)
+
+    if self.task_rejected_status:
+      # Cap rejection penalty per decision step to avoid extreme negative spikes
+      # from cascade rejections that can destabilize off-policy training.
+      task_outcome_reward = -min(1.2 * rejected_delta, 8.0)
+      # Ensure a meaningful penalty even when bookkeeping edge-cases yield 0 delta.
+      task_outcome_reward = min(task_outcome_reward, -2.0)
+    else:
+      # Stronger positive feedback for successful placement.
+      task_outcome_reward = 1.2
+
+    # Reward full job completion more clearly to align with service objective.
+    completion_bonus = 2.0 * completed_delta
+
+    # Heterogeneity-aware bonus: reward placing CPU-intensive tasks on
+    # high-efficiency servers. Both agents receive the same cooperative bonus.
+    # Controlled by use_heterogeneity flag for ablation experiments.
+    hetero_bonus = 0.0
+    if self.use_heterogeneity and not self.task_rejected_status:
+      selected_server = self.server_farms[self.server_farm_id].servers[str(self.server_id)]
+      hetero_bonus = (
+        selected_server.efficiency_tier
+        * self.scheduled_task_cpu
+        * self.hetero_weight
+      )
+      self._last_hetero_reward = hetero_bonus
+
+    # Cooperative shared reward for both agents.
+    combined_reward = (
+      (0.25 * energy_saving_reward)
+      + task_outcome_reward
+      + completion_bonus
+      + hetero_bonus
+    )
+
+    self.prev_server_farm_reward = curr_energy_cost
+    self.prev_rejected_tasks_count = self.rejected_tasks_count
+    self.prev_completed_jobs_count = self.num_completed_jobs
+    return round(combined_reward, 2)
+  
+  # event handlers
+  def _handle_job_arrival(self, job, wall_time=None):
+    # get the schedulable ready tasks from the arrived job,
+    # and put the ready tasks as task arrival events in the timeline.
+    self.active_job_ids += [job.id]
+    ready_tasks = self._find_schedulable_tasks(job_ids=[job.id])
+    for task in ready_tasks:
+      self.timeline.push(
+        wall_time, TimelineEvent(TimelineEvent.Type.TASK_ARRIVAL, data={"task_arrival": task})
+      )
+  
+  def _handle_task_arrival(self, task_arrival):
+    task = task_arrival
+    task.arrival_time = self.wall_time
+  
+  def _handle_task_departure(self, task_departure):
+    # perform bookkeeping by keeping track of its departure time, and mark task as finished,
+    # perform task departure from cloud system,
+    # push the next ready task as task arrival events if there is any from the current active job.
+    # or, remove the job in the system if all of its task has been completed,
+    task = task_departure
+    self.scheduled_task_cpu = task.cpu
+    self.scheduled_task_ram = task.ram
+    
+    try:
+      # remove task from cloud system code here:
+      server_farm = self.server_farms[task.server_farm_id]
+      server = server_farm.servers[task.server_id]
+
+      server.clear_completed_task_in_server(task)
+      job = self.jobs[task.job_id]
+    except Exception:
+      if task.job_id in self.rejected_job_ids:
+        return
+      return
+
+    task.departure_time = self.wall_time
+    self._process_task_completion(task)
+    
+    if job.completed:
+      self._process_job_completion(job)
+    else:
+      ready_tasks = self._find_schedulable_tasks()
+
+      self._insert_ready_tasks_events(ready_tasks)
+  
+  def _find_schedulable_tasks(self, job_ids=None):
+    if job_ids is None:
+      job_ids = list(self.active_job_ids)
+    
+    schedulable_tasks = [
+      task
+      for job_id in iter(job_ids)
+      for task in iter(self.jobs[job_id].get_ready_tasks())
+      if task not in self.scheduled_tasks and self._is_task_ready(task)
+    ]
+    
+    return schedulable_tasks
+  
+  def _is_task_ready(self, task):
+    """a task is ready if:
+    - its status is in ready state, not rejected, not in running state,
+    - and all of its parent dependencies has been satisfied"""
+    if task.status != 1 or task.status == -1 or task.status == 2 or task.status == 3:
+      return False
+    
+    job = self.jobs[task.job_id]
+    for task in job.get_parent_of_task(task.id):
+      if task.status != 0 and task.status != -1:
+        return False
+    return True
+  
+  def _insert_ready_tasks_events(self, ready_tasks):
+    for task in ready_tasks:
+      self.timeline.push(
+        self.wall_time, TimelineEvent(TimelineEvent.Type.TASK_ARRIVAL, data={"task_arrival": task})
+      )
+      self.scheduled_tasks.add(task)
+  
+  def _insert_task_departure_event(self, task):
+    departure_time = round(self.wall_time + task.runtime, 2)
+    self.timeline.push(
+      departure_time, TimelineEvent(TimelineEvent.Type.TASK_DEPARTURE, data={"task_departure": task})
+    )
+   
+  def _process_task_scheduling(self, task):
+    # mark task as running in job
+    job = self.jobs[task.job_id]
+    job.modify_task_status(task.id, 2)
+  
+  def _process_task_completion(self, task):
+    # mark task as finished in job
+    job = self.jobs[task.job_id]
+    job.modify_task_status(task.id, 0)
+  
+  def _process_job_completion(self, job):
+    assert job.id in self.jobs
+    self.active_job_ids.remove(job.id)
+    self.completed_job_ids.add(job.id)
+
+    job.time_completed = self.wall_time
+  
+  def _process_task_rejection(self, task):
+    self.task_rejected_status = True
+    self.schedulable_tasks = False
+    try:
+      job = self.jobs[task.job_id]
+      job.reject_task_and_cascade(task.id)
+      self.rejected_tasks_count += job.number_of_rejected_tasks
+      self.active_job_ids.remove(job.id)
+      self.rejected_job_ids.add(task.job_id)
+      self.jobs.pop(job.id)
+    except Exception:
+      return

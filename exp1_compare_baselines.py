@@ -7,20 +7,20 @@ import torch
 from env.cloud_scheduling import CloudSchedulingEnv
 
 
-NUM_JOBS = 300
-NUM_FARMS = 30
-NUM_SERVERS = 210
+NUM_JOBS = 50
+NUM_FARMS = 2
+NUM_SERVERS = 6
 NUM_SEEDS = 5
 
 # ── 指定各算法模型路径（相对于本文件目录）────────────────────────────────────
 # 可填目录（默认拼接 model.pt），也可直接填模型文件路径（如 checkpoints/model_ep10.pt）
 # 设为 None 则跳过该算法
 MODEL_DIRS = {
-    "idqn":   "results/idqn_2026_04_14_15_43_02",
-    "mappo":  "results/mappo_2026_04_14_15_42_53/checkpoints/model_ep70.pt",
-    "qmix":   "results/qmix_2026_04_14_15_42_57",
-    "vdn":    "results/vdn_2026_04_14_15_42_51",
-    "maddpg": "results/maddpg_2026_04_14_15_42_55/checkpoints/model_ep70.pt",
+    "idqn":   "results/idqn",
+    "mappo":  "results/mappo",
+    "qmix":   "results/qmix",
+    "vdn":    "results/vdn",
+    "maddpg": "results/maddpg",
 }
 
 # ── 指定要运行的策略（注释掉不需要的行即可）──────────────────────────────────

@@ -278,8 +278,32 @@ def _load_reward_series(path):
         return np.asarray(arr, dtype=float).flatten()
 
     rewards = []
+    kv_patterns = [
+        "episode_total_reward",
+        "avg_reward_per_step",
+        "server_farm_reward",
+        "server_reward",
+    ]
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
+            # New-format logs: key=value pairs (preferred)
+            kv = {}
+            for token in line.replace(",", " ").split():
+                if "=" not in token:
+                    continue
+                key, value = token.split("=", 1)
+                try:
+                    kv[key.strip()] = float(value.strip())
+                except ValueError:
+                    continue
+            if kv:
+                for key in kv_patterns:
+                    if key in kv:
+                        rewards.append(kv[key])
+                        break
+                continue
+
+            # Legacy plain-number fallback
             nums = []
             for token in line.replace(",", " ").split():
                 try:
@@ -348,7 +372,7 @@ def plot_learning_curves(results_dir="results"):
 # ── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    exp1_csv = os.path.join("results", "exp1_baseline_comparison.csv")
+    exp1_csv = os.path.join("results", "exp1_baseline_comparison_compat.csv")
     exp2_csv = os.path.join("results", "exp2_heterogeneity_ablation.csv")
 
     if os.path.exists(exp1_csv):
