@@ -67,6 +67,7 @@ class CloudSchedulingEnv(ParallelEnv):
       shape = arr_list.shape
       obs = spaces.Dict({
         "cpus_utilization": spaces.Box(low=0, high=1.0, shape=shape, dtype=float),
+        "cpu_slack": spaces.Box(low=0, high=1.0, shape=shape, dtype=float),
         "efficiency_tiers":  spaces.Box(low=0, high=1.0, shape=shape, dtype=float),
         "task_cpu": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
         "task_ram": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
@@ -80,6 +81,7 @@ class CloudSchedulingEnv(ParallelEnv):
       shape = (num_servers,)
       obs = spaces.Dict({
         "cpus_utilization": spaces.Box(low=0, high=1, shape=shape, dtype=float),
+        "cpu_slack": spaces.Box(low=0, high=1.0, shape=shape, dtype=float),
         "efficiency_tiers":  spaces.Box(low=0, high=1, shape=shape, dtype=float),
         "task_cpu": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
         "task_ram": spaces.Box(low=0, high=1, shape=(1,), dtype=float),
@@ -131,9 +133,10 @@ class CloudSchedulingEnv(ParallelEnv):
       for agent in self.agents
     }
     
-    self.prev_server_farm_reward = 0
-    self.prev_server_reward = 0
     self._last_hetero_reward = 0.0
+    self._last_marginal_power = 0.0
+    self._last_rejected_tasks_count = 0
+    self.task_cascaded_rejected = False
     self._her_numerator = 0.0
     self._her_denominator = 0.0
     
@@ -278,32 +281,36 @@ class CloudSchedulingEnv(ParallelEnv):
     # agents take action of choosing which server farm and server to place the task
     self.server_farm_id = actions["server_farm"]
     self.server_id = actions["server"]
-    
+
     server_farm = self.server_farms[self.server_farm_id]
     server = server_farm.servers[str(self.server_id)]
-    
-    # pseudocode:
-    # pop task arrival event from Timeline
-    # schedule the task to the chosen Server Farm in chosen Server
-    # perform bookkeeping on task status in job in active job
-    # add the task departure event after it has been scheduled
-    # accept/reject task happens here if chosen server in server farm is valid   
+
+    # per-step reward telemetry, reset every scheduling event
+    self._last_marginal_power = 0.0
+    self._last_rejected_tasks_count = 0
+    self.task_cascaded_rejected = False
+
     self.wall_time, event = self.timeline.pop()
-    
+
     try:
       task = event.data["task_arrival"]
     except KeyError:
       raise Exception("scheduling action timeline must only contain task arrival events")
-    
+
     if task.job_id in self.rejected_job_ids:
+      # This task belongs to a job already killed by a prior bad action; the
+      # current action is not the cause and should not be penalized again.
+      self.task_cascaded_rejected = True
       self._process_task_rejection(task)
       return
-    
+
     self._handle_task_arrival(task)
-    
+
     if server.is_available:
+      power_before = server.total_power
       scheduled = server.host_task_in_server(task)
       if scheduled:
+        self._last_marginal_power = max(0.0, server.total_power - power_before)
         self.scheduled_task_cpu = task.cpu
         self.scheduled_task_ram = task.ram
         self.scheduled_task_deadline = self.wall_time + task.runtime
@@ -311,14 +318,16 @@ class CloudSchedulingEnv(ParallelEnv):
         self._insert_task_departure_event(task)
         self.scheduled_tasks.add(task)
         self.schedulable_tasks = False
-        # Accumulate HER numerator/denominator
         self._her_numerator += task.cpu * server.efficiency_tier
         self._her_denominator += task.cpu
       else:
+        before_count = self.rejected_tasks_count
         self._process_task_rejection(task)
+        self._last_rejected_tasks_count = self.rejected_tasks_count - before_count
     else:
-      # reject task, drop the subsequent tasks from the job from the system.
+      before_count = self.rejected_tasks_count
       self._process_task_rejection(task)
+      self._last_rejected_tasks_count = self.rejected_tasks_count - before_count
   
   def _resume_simulation(self):
     """resumes the simulation until either there are new scheduling
@@ -355,6 +364,7 @@ class CloudSchedulingEnv(ParallelEnv):
   def _get_observation(self, agent):
     if agent == "server_farm":
       cpus_util = np.array([self.server_farms[key].curr_cpus_util for key in self.server_farms.keys()])
+      cpu_slack = np.array([self.server_farms[key].cpu_slack for key in self.server_farms.keys()])
       eff_tiers = np.array([self.server_farms[key].efficiency_tiers for key in self.server_farms.keys()])
       task_cpu = np.array(self.scheduled_task_cpu).flatten()
       task_ram = np.array(self.scheduled_task_ram).flatten()
@@ -362,6 +372,7 @@ class CloudSchedulingEnv(ParallelEnv):
 
       obs = {
         "cpus_utilization": cpus_util,
+        "cpu_slack": cpu_slack,
         "efficiency_tiers":  eff_tiers,
         "task_cpu": task_cpu,
         "task_ram": task_ram,
@@ -372,6 +383,7 @@ class CloudSchedulingEnv(ParallelEnv):
     elif agent == "server":
       server_farm = self.server_farms[self.server_farm_id]
       cpus_util = np.array(server_farm.curr_cpus_util)
+      cpu_slack = np.array(server_farm.cpu_slack)
       eff_tiers = np.array(server_farm.efficiency_tiers)
       task_cpu = np.array(self.scheduled_task_cpu).flatten()
       task_ram = np.array(self.scheduled_task_ram).flatten()
@@ -379,6 +391,7 @@ class CloudSchedulingEnv(ParallelEnv):
 
       obs = {
         "cpus_utilization": cpus_util,
+        "cpu_slack": cpu_slack,
         "efficiency_tiers":  eff_tiers,
         "task_cpu": task_cpu,
         "task_ram": task_ram,
@@ -388,47 +401,57 @@ class CloudSchedulingEnv(ParallelEnv):
       return obs
 
   def _get_reward(self, agent):
-    # Shared reward for overall system efficiency
-    curr_energy_cost = sum(self.server_farms[key].get_price for key in self.server_farms.keys())
-    prev_energy_cost = self.prev_server_farm_reward
-    if not self.task_rejected_status and prev_energy_cost > 0:
-      denom = max(abs(prev_energy_cost), 1.0)
-      energy_saving_reward = (prev_energy_cost - curr_energy_cost) / denom
-      energy_saving_reward = float(np.clip(energy_saving_reward, -1.0, 1.0))
-    else:
-      # Do not grant energy-related reward on rejection, and avoid a distorted
-      # first-step reward when the previous cost has not been initialized yet.
-      energy_saving_reward = 0.0
+    # Credit-attributable, bounded reward. Four components, each in [-1, 1]:
+    #   - task_outcome: success vs fresh rejection vs cascaded auto-reject (0)
+    #   - energy_reward: negative of the marginal power added by THIS placement
+    #   - hetero_reward: centered efficiency signal (old servers penalized on CPU-heavy)
+    #   - fit_reward: bin-packing tightness on the chosen server (consolidation)
+    is_cascaded = self.task_cascaded_rejected
+    is_fresh_reject = self.task_rejected_status and not is_cascaded
+    is_scheduled = not self.task_rejected_status
 
-    # Encourage cooperation by rewarding task success shared across agents
-    if not self.task_rejected_status:
-      task_success_reward = 1  # Positive reward for successful task scheduling
+    if is_scheduled:
+      task_outcome = 1.0
+    elif is_fresh_reject:
+      lost = max(1, self._last_rejected_tasks_count)
+      task_outcome = -float(np.clip(1.0 + 0.25 * (lost - 1), 1.0, 2.0))
     else:
-      task_success_reward = -2  # Penalty for task rejection
+      task_outcome = 0.0
 
-    # Heterogeneity-aware bonus: reward placing CPU-intensive tasks on
-    # high-efficiency servers. Both agents receive the same cooperative bonus.
-    # Controlled by use_heterogeneity flag for ablation experiments.
-    hetero_bonus = 0.0
-    if self.use_heterogeneity and not self.task_rejected_status:
+    if is_scheduled:
+      energy_reward = -float(np.tanh(self._last_marginal_power))
+    else:
+      energy_reward = 0.0
+
+    if is_scheduled and self.use_heterogeneity:
       selected_server = self.server_farms[self.server_farm_id].servers[str(self.server_id)]
-      hetero_bonus = (
-        selected_server.efficiency_tier
-        * self.scheduled_task_cpu
-        * self.hetero_weight
-      )
-      self._last_hetero_reward = hetero_bonus
+      eff_centered = 2.0 * selected_server.efficiency_tier - 1.0
+      hetero_reward = float(np.clip(
+        eff_centered * self.scheduled_task_cpu * self.hetero_weight * 2.0,
+        -1.0, 1.0,
+      ))
+      self._last_hetero_reward = hetero_reward
+    else:
+      hetero_reward = 0.0
 
-    # Combine global and individual rewards
+    if is_scheduled:
+      selected_server = self.server_farms[self.server_farm_id].servers[str(self.server_id)]
+      fit_reward = float(np.clip(selected_server.cpu_utilization_rate, 0.0, 1.0))
+    else:
+      fit_reward = 0.0
+
     if agent == "server_farm":
-      # Server farm reward includes both individual and global components
-      combined_reward = energy_saving_reward + (task_success_reward * 0.5) + hetero_bonus
-    elif agent == "server":
-      # Server reward focuses on cooperating to complete tasks
-      combined_reward = task_success_reward + (energy_saving_reward * 0.5) + hetero_bonus
+      combined_reward = (
+        0.4 * task_outcome + 0.3 * energy_reward
+        + 0.2 * hetero_reward + 0.1 * fit_reward
+      )
+    else:  # server
+      combined_reward = (
+        0.4 * task_outcome + 0.2 * energy_reward
+        + 0.2 * hetero_reward + 0.2 * fit_reward
+      )
 
-    self.prev_server_farm_reward = curr_energy_cost
-    return round(combined_reward, 2)
+    return round(combined_reward, 4)
   
   # event handlers
   def _handle_job_arrival(self, job, wall_time=None):

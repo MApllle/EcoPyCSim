@@ -125,8 +125,8 @@ for episode in range(episode_num):
 
   maddpg.save(episode_rewards)
 
-  # 每 100 轮保存一次检查点
-  if (episode + 1) % 100 == 0:
+  # 每 50 轮保存一次检查点
+  if (episode + 1) % 10 == 0:
     ckpt_dir = os.path.join(env_dir, 'checkpoints')
     os.makedirs(ckpt_dir, exist_ok=True)
     shutil.copy(

@@ -1,3 +1,4 @@
+import argparse
 import csv
 import os
 
@@ -24,16 +25,16 @@ MODEL_DIRS = {
 
 # ── 指定要运行的策略（注释掉不需要的行即可）──────────────────────────────────
 STRATEGIES = [
-    "random",
-    "round_robin",
-    "least_loaded",
-    "best_fit",
-    "energy_greedy",
-    "idqn",
-    "vdn",
-    "qmix",
+    # "random",
+    # "round_robin",
+    # "least_loaded",
+    # "best_fit",
+    # "energy_greedy",
+    # "idqn",
+    # "vdn",
+    # "qmix",
     "mappo",
-    "maddpg",
+    # "maddpg",
 ]
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -247,12 +248,17 @@ def run_experiment(strategy_name, idqn=None, mappo=None, qmix=None, vdn=None, ma
         "her": her,
     }
 
-def _load_marl_agents():
+def _load_marl_agents(model_base_dir=None):
     agents = {}
-    base = os.path.dirname(os.path.abspath(__file__))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if model_base_dir is None:
+        base = script_dir
+    else:
+        base = model_base_dir if os.path.isabs(model_base_dir) else os.path.join(script_dir, model_base_dir)
+    print(f"Model base dir: {base}")
     dim_info = _build_dim_info()
     candidates = {
-        name: os.path.join(base, dir_path, "model.pt")
+        name: os.path.join(dir_path if os.path.isabs(dir_path) else os.path.join(base, dir_path), "model.pt")
         for name, dir_path in MODEL_DIRS.items()
         if dir_path is not None
     }
@@ -309,8 +315,8 @@ def _load_marl_agents():
     return agents
 
 
-def _run_main():
-    marl_agents = _load_marl_agents()
+def _run_main(model_base_dir=None):
+    marl_agents = _load_marl_agents(model_base_dir=model_base_dir)
     marl_names = {"idqn", "vdn", "qmix", "mappo", "maddpg"}
     strategies = [s for s in STRATEGIES if s not in marl_names or s in marl_agents]
 
@@ -364,7 +370,18 @@ def _run_main():
 
 
 if __name__ == "__main__":
-    _run_main()
+    parser = argparse.ArgumentParser(
+        description="Evaluate baseline and MARL policies on CloudSchedulingEnv."
+    )
+    parser.add_argument(
+        "--model-base-dir",
+        type=str,
+        default=None,
+        help="模型目录基准路径。可填绝对路径，或相对于本文件所在目录的相对路径。",
+    )
+    args = parser.parse_args()
+
+    _run_main(model_base_dir=args.model_base_dir)
     raise SystemExit(0)
     # ── 尝试加载已训练的 IDQN 模型 ─────────────────────────────────────────
     idqn_instance = None

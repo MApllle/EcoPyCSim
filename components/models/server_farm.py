@@ -28,6 +28,10 @@ class Server_Farm:
   @property
   def efficiency_tiers(self):
     return [server.efficiency_tier for server in self.servers.values()]
+
+  @property
+  def cpu_slack(self):
+    return [server.first_idle_vm_cpu_slack for server in self.servers.values()]
   
   @property
   def curr_pwrs(self):

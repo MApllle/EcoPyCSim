@@ -53,7 +53,7 @@ num_servers      = 210
 episode_num      = 1000
 
 # MAPPO 专属超参
-episode_length   = num_jobs      # 每 episode 恰好处理完所有 job
+episode_length   = num_jobs * 15      # 每 episode 恰好处理完所有 job
 num_mini_batch   = 4             # PPO 小批量数
 ppo_epoch        = 10            # 每次 rollout 后 PPO 更新轮数
 lr               = 5e-4
@@ -192,7 +192,7 @@ for episode in range(episode_num):
     mappo.save(episode_rewards)
 
     # 每 100 轮保存一次检查点
-    if (episode + 1) % 100 == 0:
+    if (episode + 1) % 10 == 0:
         ckpt_dir = os.path.join(res_dir, 'checkpoints')
         os.makedirs(ckpt_dir, exist_ok=True)
         shutil.copy(

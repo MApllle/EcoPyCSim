@@ -5,11 +5,12 @@ def flatten_cloud_obs(obs):
     """将字典格式的 obs 展平成一维向量"""
     # 注意：这里需要确保提取的 key 在 obs_dict 中确实存在
     cpu_util = np.array(obs.get('cpus_utilization', [])).flatten()
+    cpu_slack = np.array(obs.get('cpu_slack', [])).flatten()
     task_req = np.array(obs.get('task_cpu', [0])).flatten()
     tiers = np.array(obs.get('efficiency_tiers', [])).flatten()
 
     # 如果维度不对，可能会导致训练崩溃，建议在这里加一个 print 调试一次维度
-    return np.concatenate([cpu_util, task_req, tiers]).astype(np.float32)
+    return np.concatenate([cpu_util, cpu_slack, task_req, tiers]).astype(np.float32)
 
 class CloudEnvWrapper:
     def __init__(self, env):

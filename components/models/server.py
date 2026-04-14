@@ -74,6 +74,16 @@ class Server:
   def is_available(self):
     # Check if any VM in the server is available
     return any(vm.status == 0 for vm in self.vms.values())
+
+  @property
+  def first_idle_vm_cpu_slack(self):
+    # CPU headroom that a freshly scheduled task could claim on this server,
+    # matching the check in check_cpu_mem_constraint (task.cpu + vm.cpu <= 1).
+    # Returns 0 when no idle VM exists so the agent sees this server as unusable.
+    idle_vm = next((vm for vm in self.vms.values() if vm.status == 0), None)
+    if idle_vm is None:
+      return 0.0
+    return max(0.0, round(1.0 - idle_vm.cpu, 4))
   
   def populate_vm(self, vms):
     return {vm.id: vm for vm in vms}
