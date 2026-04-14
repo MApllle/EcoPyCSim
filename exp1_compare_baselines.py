@@ -12,6 +12,31 @@ NUM_FARMS = 30
 NUM_SERVERS = 210
 NUM_SEEDS = 5
 
+# ── 指定各算法的结果目录（相对于项目根目录）──────────────────────────────────
+# 将对应算法的目录名改为实际路径，设为 None 则跳过该算法
+MODEL_DIRS = {
+    "idqn":   "results/idqn",
+    "mappo":  "results/mappo_2026_04_14_13_35_26",
+    "qmix":   "results/qmix",
+    "vdn":    "results/vdn_2026_04_14_13_46_45",
+    "maddpg": "results/maddpg_2026_04_14_14_19_11",
+}
+
+# ── 指定要运行的策略（注释掉不需要的行即可）──────────────────────────────────
+STRATEGIES = [
+    "random",
+    "round_robin",
+    "least_loaded",
+    "best_fit",
+    "energy_greedy",
+    "idqn",
+    "vdn",
+    "qmix",
+    "mappo",
+    "maddpg",
+]
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 def _build_dim_info(num_jobs=NUM_JOBS, num_farms=NUM_FARMS, num_servers=NUM_SERVERS):
     env = CloudSchedulingEnv(num_jobs=num_jobs, num_server_farms=num_farms, num_servers=num_servers)
@@ -227,11 +252,9 @@ def _load_marl_agents():
     base = os.path.dirname(os.path.abspath(__file__))
     dim_info = _build_dim_info()
     candidates = {
-        "idqn": os.path.join(base, "results", "idqn", "model.pt"),
-        "mappo": os.path.join(base, "results", "mappo", "model.pt"),
-        "qmix": os.path.join(base, "results", "qmix", "model.pt"),
-        "vdn": os.path.join(base, "results", "vdn", "model.pt"),
-        "maddpg": os.path.join(base, "results", "maddpg", "model.pt"),
+        name: os.path.join(base, dir_path, "model.pt")
+        for name, dir_path in MODEL_DIRS.items()
+        if dir_path is not None
     }
 
     for name, path in candidates.items():
@@ -288,20 +311,8 @@ def _load_marl_agents():
 
 def _run_main():
     marl_agents = _load_marl_agents()
-    strategies = [
-        "random",
-        "round_robin",
-        "least_loaded",
-        "best_fit",
-        "energy_greedy",
-        "idqn",
-        "vdn",
-        "qmix",
-        "mappo",
-        "maddpg",
-    ]
     marl_names = {"idqn", "vdn", "qmix", "mappo", "maddpg"}
-    strategies = [s for s in strategies if s not in marl_names or s in marl_agents]
+    strategies = [s for s in STRATEGIES if s not in marl_names or s in marl_agents]
 
     all_results = []
     for s in strategies:
