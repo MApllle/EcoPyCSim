@@ -24,8 +24,8 @@ def set_env(num_jobs, num_server_farms, num_servers):
     return env, _dim_info
 
 num_jobs = 300
-num_server_farms = 30
-num_servers = 210
+num_server_farms = 2
+num_servers = 6
 
 capacity = int(1e6)
 batch_size = 1024 #1024

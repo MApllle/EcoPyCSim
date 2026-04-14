@@ -4,9 +4,9 @@ import matplotlib.pyplot as plt
 from env import cloud_scheduling_v0
 
 def main():
-  num_jobs = 2
-  num_server_farms = 5
-  num_servers = 5
+  num_jobs = 5
+  num_server_farms = 2
+  num_servers = 6
   env = cloud_scheduling_v0.CloudSchedulingEnv(num_jobs, num_server_farms, num_servers)
   
   obs, infos = env.reset()

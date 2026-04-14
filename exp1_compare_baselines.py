@@ -1,4 +1,3 @@
-import argparse
 import csv
 import os
 
@@ -13,14 +12,15 @@ NUM_FARMS = 30
 NUM_SERVERS = 210
 NUM_SEEDS = 5
 
-# ── 指定各算法的结果目录（相对于项目根目录）──────────────────────────────────
-# 将对应算法的目录名改为实际路径，设为 None 则跳过该算法
+# ── 指定各算法模型路径（相对于本文件目录）────────────────────────────────────
+# 可填目录（默认拼接 model.pt），也可直接填模型文件路径（如 checkpoints/model_ep10.pt）
+# 设为 None 则跳过该算法
 MODEL_DIRS = {
-    "idqn":   "results/idqn",
-    "mappo":  "results/mappo_2026_04_14_13_35_26",
-    "qmix":   "results/qmix",
-    "vdn":    "results/vdn_2026_04_14_13_46_45",
-    "maddpg": "results/maddpg_2026_04_14_14_19_11",
+    "idqn":   "results/idqn_2026_04_14_15_43_02",
+    "mappo":  "results/mappo_2026_04_14_15_42_53/checkpoints/model_ep70.pt",
+    "qmix":   "results/qmix_2026_04_14_15_42_57",
+    "vdn":    "results/vdn_2026_04_14_15_42_51",
+    "maddpg": "results/maddpg_2026_04_14_15_42_55/checkpoints/model_ep70.pt",
 }
 
 # ── 指定要运行的策略（注释掉不需要的行即可）──────────────────────────────────
@@ -34,7 +34,7 @@ STRATEGIES = [
     # "vdn",
     # "qmix",
     "mappo",
-    # "maddpg",
+    "maddpg",
 ]
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -248,20 +248,21 @@ def run_experiment(strategy_name, idqn=None, mappo=None, qmix=None, vdn=None, ma
         "her": her,
     }
 
-def _load_marl_agents(model_base_dir=None):
+def _load_marl_agents():
     agents = {}
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    if model_base_dir is None:
-        base = script_dir
-    else:
-        base = model_base_dir if os.path.isabs(model_base_dir) else os.path.join(script_dir, model_base_dir)
-    print(f"Model base dir: {base}")
+    base = os.path.dirname(os.path.abspath(__file__))
     dim_info = _build_dim_info()
-    candidates = {
-        name: os.path.join(dir_path if os.path.isabs(dir_path) else os.path.join(base, dir_path), "model.pt")
-        for name, dir_path in MODEL_DIRS.items()
-        if dir_path is not None
-    }
+    model_exts = {".pt", ".pth", ".ckpt"}
+    candidates = {}
+    for name, configured_path in MODEL_DIRS.items():
+        if configured_path is None:
+            continue
+        resolved = configured_path if os.path.isabs(configured_path) else os.path.join(base, configured_path)
+        # 兼容两种配置：目录（自动补 model.pt）或文件（直接使用）
+        if os.path.splitext(resolved)[1].lower() in model_exts:
+            candidates[name] = resolved
+        else:
+            candidates[name] = os.path.join(resolved, "model.pt")
 
     for name, path in candidates.items():
         if not os.path.exists(path):
@@ -315,8 +316,8 @@ def _load_marl_agents(model_base_dir=None):
     return agents
 
 
-def _run_main(model_base_dir=None):
-    marl_agents = _load_marl_agents(model_base_dir=model_base_dir)
+def _run_main():
+    marl_agents = _load_marl_agents()
     marl_names = {"idqn", "vdn", "qmix", "mappo", "maddpg"}
     strategies = [s for s in STRATEGIES if s not in marl_names or s in marl_agents]
 
@@ -370,18 +371,7 @@ def _run_main(model_base_dir=None):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Evaluate baseline and MARL policies on CloudSchedulingEnv."
-    )
-    parser.add_argument(
-        "--model-base-dir",
-        type=str,
-        default=None,
-        help="模型目录基准路径。可填绝对路径，或相对于本文件所在目录的相对路径。",
-    )
-    args = parser.parse_args()
-
-    _run_main(model_base_dir=args.model_base_dir)
+    _run_main()
     raise SystemExit(0)
     # ── 尝试加载已训练的 IDQN 模型 ─────────────────────────────────────────
     idqn_instance = None

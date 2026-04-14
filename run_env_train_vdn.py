@@ -45,9 +45,9 @@ def set_env(num_jobs, num_server_farms, num_servers):
 
 # ── 超参数（与 IDQN 脚本完全一致，保证公平对比） ─────────────────────────────
 
-num_jobs         = 300
-num_server_farms = 30
-num_servers      = 210
+num_jobs         = 50
+num_server_farms = 2
+num_servers      = 6
 
 episode_num      = 1000
 random_steps     = int(num_jobs * 0.1)   # 前 30 步纯随机探索
@@ -72,8 +72,12 @@ res_dir = os.path.join(
     f'vdn_{timestamp}',
 )
 os.makedirs(res_dir, exist_ok=True)
+script_src = os.path.abspath(__file__)
+script_snapshot_path = os.path.join(res_dir, os.path.basename(script_src))
+shutil.copy2(script_src, script_snapshot_path)
 reward_file_path = os.path.join(res_dir, 'reward.txt')
 print(f"本次实验输出目录: {res_dir}")
+print(f"训练脚本快照已保存到: {script_snapshot_path}")
 
 # ── 初始化 ───────────────────────────────────────────────────────────────────
 

@@ -27,9 +27,9 @@ def set_env(num_jobs, num_server_farms, num_servers):
   
   return env, _dim_info
 
-num_jobs = 300
-num_server_farms = 30
-num_servers = 210
+num_jobs = 50
+num_server_farms = 2
+num_servers = 6
 
 episode_num = 1000
 random_steps = num_jobs * 0.1
@@ -49,7 +49,11 @@ env_dir = os.path.join(
 )
 if not os.path.exists(env_dir):
   os.makedirs(env_dir)
+script_src = os.path.abspath(__file__)
+script_snapshot_path = os.path.join(env_dir, os.path.basename(script_src))
+shutil.copy2(script_src, script_snapshot_path)
 print(f"本次实验输出目录: {env_dir}")
+print(f"训练脚本快照已保存到: {script_snapshot_path}")
 
 reward_file_path = os.path.join(env_dir, 'reward.txt')
 env, dim_info = set_env(num_jobs=num_jobs, num_server_farms=num_server_farms, num_servers=num_servers)
