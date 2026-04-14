@@ -17,7 +17,24 @@ import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
 
-matplotlib.rcParams["font.family"] = "DejaVu Sans"
+
+def _configure_matplotlib_fonts():
+    """Prefer CJK-capable fonts to avoid missing glyph warnings on Chinese labels."""
+    matplotlib.rcParams["font.family"] = "sans-serif"
+    matplotlib.rcParams["font.sans-serif"] = [
+        "Microsoft YaHei",
+        "SimHei",
+        "SimSun",
+        "Microsoft JhengHei",
+        "Noto Sans CJK SC",
+        "Source Han Sans SC",
+        "Arial Unicode MS",
+        "DejaVu Sans",
+    ]
+    matplotlib.rcParams["axes.unicode_minus"] = False
+
+
+_configure_matplotlib_fonts()
 FIGURES_DIR = os.path.join("results", "figures")
 os.makedirs(FIGURES_DIR, exist_ok=True)
 

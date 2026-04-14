@@ -133,20 +133,27 @@ for episode in range(episode_num):
     for agent_id, r in agent_reward.items():
         episode_rewards[agent_id][episode] = r
 
+    sum_reward = sum(agent_reward.values())
+    avg_reward = sum_reward / max(step, 1)
+
     with open(reward_file_path, 'a') as f:
         f.write(
-            f"episode {episode + 1}, "
-            f"server_farm reward: {agent_reward['server_farm']:.4f}, "
-            f"server reward: {agent_reward['server']:.4f}\n"
+            f"episode={episode + 1}, "
+            f"steps={step}, "
+            f"epsilon={epsilon:.4f}, "
+            f"server_farm_reward={agent_reward['server_farm']:.4f}, "
+            f"server_reward={agent_reward['server']:.4f}, "
+            f"episode_total_reward={sum_reward:.4f}, "
+            f"avg_reward_per_step={avg_reward:.4f}\n"
         )
 
-    sum_reward = sum(agent_reward.values())
     print(
         f"[QMIX] episode {episode + 1:3d}/{episode_num}  "
         f"eps={epsilon:.3f}  "
         f"server_farm={agent_reward['server_farm']:8.4f}  "
         f"server={agent_reward['server']:8.4f}  "
-        f"sum={sum_reward:8.4f}"
+        f"sum={sum_reward:8.4f}  "
+        f"avg_step={avg_reward:8.4f}"
     )
 
     qmix.save(episode_rewards)

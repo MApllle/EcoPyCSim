@@ -96,16 +96,24 @@ for episode in range(episode_num):
       episode_rewards[agent_id][episode] = r
     server_farm_reward = agent_reward['server_farm']
     server_reward = agent_reward['server']
-    file.write(f"episode {episode + 1}, server_farm reward: {server_farm_reward}, server reward: {server_reward}\n")
+    sum_reward = sum(agent_reward.values())
+    avg_reward = sum_reward / max(step, 1)
+    file.write(
+      f"episode={episode + 1}, "
+      f"steps={step}, "
+      f"server_farm_reward={server_farm_reward:.4f}, "
+      f"server_reward={server_reward:.4f}, "
+      f"episode_total_reward={sum_reward:.4f}, "
+      f"avg_reward_per_step={avg_reward:.4f}\n"
+    )
 
-  message = f'episode {episode + 1}, '
-  sum_reward = 0
-  for agent_id, r in agent_reward.items():
-    message += f'{agent_id}: {r:.4f}; '
-    sum_reward += r
-  message += f'sum reward: {sum_reward:.4f}'
-  print(f"server farm reward: {reward['server_farm']}, server reward: {reward['server']}")
-  print(message)
+  print(
+    f"[MADDPG] episode {episode + 1:3d}/{episode_num}  "
+    f"server_farm={server_farm_reward:8.4f}  "
+    f"server={server_reward:8.4f}  "
+    f"sum={sum_reward:8.4f}  "
+    f"avg_step={avg_reward:8.4f}"
+  )
 
   #if (episode+1) % 50 == 0:
   maddpg.save(episode_rewards)

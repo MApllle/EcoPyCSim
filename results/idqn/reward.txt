@@ -1,0 +1,16 @@
+episode 1, server_farm reward: 977.9800, server reward: 1937.6800
+episode 2, server_farm reward: 819.4900, server reward: 1621.6500
+episode 3, server_farm reward: 1079.1600, server reward: 2140.3600
+episode 4, server_farm reward: 1134.0900, server reward: 2248.7900
+episode 5, server_farm reward: 1100.2500, server reward: 2182.0100
+episode 6, server_farm reward: 1211.0800, server reward: 2401.8400
+episode 7, server_farm reward: 1257.5400, server reward: 2491.9500
+episode 8, server_farm reward: 1322.8700, server reward: 2622.3300
+episode 9, server_farm reward: 1369.3000, server reward: 2717.0600
+episode 10, server_farm reward: 1464.7700, server reward: 2903.1500
+episode=1, steps=4786, epsilon=0.0100, server_farm_reward=1052.4400, server_reward=2087.5900, episode_total_reward=3140.0300, avg_reward_per_step=0.6561
+episode=2, steps=4674, epsilon=0.0100, server_farm_reward=886.2500, server_reward=1758.0500, episode_total_reward=2644.3000, avg_reward_per_step=0.5657
+episode=3, steps=5296, epsilon=0.0100, server_farm_reward=1120.8600, server_reward=2224.6600, episode_total_reward=3345.5200, avg_reward_per_step=0.6317
+episode=4, steps=5358, epsilon=0.0100, server_farm_reward=1139.7200, server_reward=2260.4600, episode_total_reward=3400.1800, avg_reward_per_step=0.6346
+episode=5, steps=5090, epsilon=0.0100, server_farm_reward=1233.8400, server_reward=2448.1400, episode_total_reward=3681.9800, avg_reward_per_step=0.7234
+episode=6, steps=5562, epsilon=0.0100, server_farm_reward=1218.2400, server_reward=2417.0900, episode_total_reward=3635.3300, avg_reward_per_step=0.6536

@@ -1,0 +1,10 @@
+episode 1, server_farm reward: 84.9000, server reward: 151.5300, policy_loss: -0.0494, value_loss: 0.8112
+episode 2, server_farm reward: 85.5000, server reward: 151.5200, policy_loss: -0.0306, value_loss: 0.5102
+episode 3, server_farm reward: 86.0100, server reward: 151.5100, policy_loss: -0.0336, value_loss: 0.2630
+episode 4, server_farm reward: 83.9800, server reward: 151.5200, policy_loss: -0.0321, value_loss: 0.1657
+episode 5, server_farm reward: 85.5700, server reward: 151.5300, policy_loss: -0.0317, value_loss: 0.1047
+episode 6, server_farm reward: 83.6100, server reward: 151.5300, policy_loss: -0.0372, value_loss: 0.0746
+episode 7, server_farm reward: 83.9400, server reward: 151.5200, policy_loss: -0.0419, value_loss: 0.0599
+episode 8, server_farm reward: 83.9500, server reward: 151.5200, policy_loss: -0.0346, value_loss: 0.0474
+episode 9, server_farm reward: 84.6600, server reward: 151.5200, policy_loss: -0.0318, value_loss: 0.0382
+episode 10, server_farm reward: 83.7200, server reward: 151.5400, policy_loss: -0.0320, value_loss: 0.0336
