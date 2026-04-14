@@ -140,7 +140,10 @@ def plot_exp1(csv_path):
     metric_specs = [
         ("total_price_mean", "total_price_std",  "总能耗成本对比",         "Total Energy Cost",     "exp1_energy_cost.png",     True),
         ("eet_mean",          "eet_std",           "单任务能耗 (EET) 对比",  "Energy per Task (EET)", "exp1_eet.png",              True),
+        ("energy_per_completed_task_mean", "energy_per_completed_task_std", "每完成任务能耗对比", "Energy per Completed Task", "exp1_energy_per_completed_task.png", True),
         ("rejected_tasks_mean","rejected_tasks_std","任务拒绝数对比",         "Rejected Tasks",        "exp1_rejected.png",         True),
+        ("scheduling_success_rate_mean", "scheduling_success_rate_std", "任务调度成功率对比", "Scheduling Success Rate", "exp1_success_rate.png", False),
+        ("scheduling_reject_rate_mean", "scheduling_reject_rate_std", "任务调度拒绝率对比", "Scheduling Reject Rate", "exp1_reject_rate.png", True),
         ("jains_fairness_mean","jains_fairness_std","负载均衡 Jain's J 对比","Jain's Fairness Index", "exp1_jains.png",            False),
         ("active_server_ratio_mean","active_server_ratio_std","活跃服务器比率 (ASR) 对比","Active Server Ratio","exp1_asr.png",True),
         ("her_mean",          "her_std",            "异构感知率 (HER) 对比",  "Heterogeneity Exploitation Rate","exp1_her.png",False),
@@ -151,10 +154,23 @@ def plot_exp1(csv_path):
         else:
             print(f"  跳过 {mean_col}（列不存在）")
 
+    # ESS: Eco-Scheduling Score (higher is better — balances energy and completion)
+    if "eco_scheduling_score" in df.columns:
+        _bar_chart(
+            df, "eco_scheduling_score", None,
+            "综合调度均衡分 (ESS) 对比\nESS = 成功率 × (1 − 归一化能耗)，越高越好",
+            "Eco-Scheduling Score (ESS)",
+            "exp1_ess.png",
+            lower_is_better=False,
+        )
+    else:
+        print("  跳过 ESS（列不存在，请重新运行 exp1_compare_baselines.py）")
+
     # Radar chart (normalised, lower-is-better metrics inverted)
+    reject_rate_col = "scheduling_reject_rate_mean" if "scheduling_reject_rate_mean" in df.columns else "rejected_tasks_mean"
     radar_metrics = {
         "能耗(↓)":     ("total_price_mean", True),
-        "拒绝率(↓)":   ("rejected_tasks_mean", True),
+        "拒绝率(↓)":   (reject_rate_col, True),
         "Jain J(↑)":  ("jains_fairness_mean", False),
         "HER(↑)":     ("her_mean", False),
         "ASR(↓)":     ("active_server_ratio_mean", True),
@@ -372,7 +388,7 @@ def plot_learning_curves(results_dir="results"):
 # ── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    exp1_csv = os.path.join("results", "exp1_baseline_comparison.csv")
+    exp1_csv = os.path.join("results", "exp1_baseline_comparison_compat.csv")
     exp2_csv = os.path.join("results", "exp2_heterogeneity_ablation.csv")
 
     if os.path.exists(exp1_csv):

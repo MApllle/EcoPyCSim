@@ -59,6 +59,12 @@ def _safe_mean(values):
     return round(float(np.mean(values)), 4) if values else 0.0
 
 
+def _safe_rate(numerator, denominator):
+    if denominator <= 0:
+        return 0.0
+    return round(float(numerator) / float(denominator), 4)
+
+
 def _flatten_obs(obs_dict: dict) -> np.ndarray:
     """将 dict 观测拼接为 1D numpy 数组（键排序，与 IDQN/MADDPG 相同）。"""
     parts = []
@@ -225,11 +231,16 @@ def run_experiment(strategy_name, idqn=None, mappo=None, qmix=None, vdn=None, ma
     completed = len(last_info.get("completed_job_ids", set()))
 
     eet = round(total_price / max(completed, 1), 4)
+    energy_per_completed_task = eet
+    decided_tasks = completed + rejected
+    scheduling_success_rate = _safe_rate(completed, decided_tasks)
+    scheduling_reject_rate = _safe_rate(rejected, decided_tasks)
 
     print(
         f"【实验结果】策略: {strategy_name:15} | 步数: {step_count:5} | "
         f"价格: {total_price:.2f} | EET: {eet:.4f} | "
         f"拒绝任务: {rejected:4} | 完成作业: {completed:4} | "
+        f"成功率: {scheduling_success_rate:.4f} | 拒绝率: {scheduling_reject_rate:.4f} | "
         f"Jain(mean): {jains:.4f} | ASR(mean): {asr:.4f} | HER(final): {her:.4f}"
     )
     eval_env.close()
@@ -239,8 +250,11 @@ def run_experiment(strategy_name, idqn=None, mappo=None, qmix=None, vdn=None, ma
         "steps": step_count,
         "total_price": round(total_price, 4),
         "eet": eet,
+        "energy_per_completed_task": energy_per_completed_task,
         "rejected_tasks": rejected,
         "completed_jobs": completed,
+        "scheduling_success_rate": scheduling_success_rate,
+        "scheduling_reject_rate": scheduling_reject_rate,
         "wall_time": wall_time,
         "jains_fairness": jains,
         "active_server_ratio": asr,
@@ -338,8 +352,11 @@ def _run_main():
                 "steps",
                 "total_price",
                 "eet",
+                "energy_per_completed_task",
                 "rejected_tasks",
                 "completed_jobs",
+                "scheduling_success_rate",
+                "scheduling_reject_rate",
                 "wall_time",
                 "jains_fairness",
                 "active_server_ratio",
@@ -351,6 +368,16 @@ def _run_main():
                 agg[f"{metric}_mean"] = round(float(np.mean(vals)), 4)
                 agg[f"{metric}_std"] = round(float(np.std(vals)), 4)
             all_results.append(agg)
+
+    # Post-hoc ESS: Eco-Scheduling Score = ASR × (1 − price_norm)
+    # Requires all algorithms to be evaluated first for cross-algorithm normalization.
+    if all_results:
+        max_price = max(r["total_price_mean"] for r in all_results)
+        for r in all_results:
+            price_norm = r["total_price_mean"] / max_price if max_price > 0 else 0.0
+            r["eco_scheduling_score"] = round(
+                r["scheduling_success_rate_mean"] * (1.0 - price_norm), 4
+            )
 
     if all_results:
         os.makedirs("results", exist_ok=True)
