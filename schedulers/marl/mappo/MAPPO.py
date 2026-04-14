@@ -401,8 +401,6 @@ class MAPPO:
             'actors': {aid: self.actors[aid].state_dict() for aid in self.agent_ids},
             'critic': self.critic.state_dict(),
         }
-        if reward is not None:
-            state['reward'] = reward
         torch.save(state, os.path.join(self.res_dir, 'model.pt'))
 
     @classmethod
@@ -413,7 +411,7 @@ class MAPPO:
         instance = cls(dim_info, episode_length, num_mini_batch, lr,
                        res_dir=os.path.dirname(file),
                        hidden_size=hidden_size, device=device, **kwargs)
-        state = torch.load(file, map_location=instance.device)
+        state = torch.load(file, map_location=instance.device, weights_only=False)
         for aid in instance.agent_ids:
             instance.actors[aid].load_state_dict(state['actors'][aid])
         instance.critic.load_state_dict(state['critic'])

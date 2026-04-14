@@ -69,6 +69,7 @@ use_valuenorm    = True
 res_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results', 'mappo')
 os.makedirs(res_dir, exist_ok=True)
 reward_file_path = os.path.join(res_dir, 'reward.txt')
+open(reward_file_path, 'w').close()
 
 # ── 初始化 ────────────────────────────────────────────────────────────────────
 
@@ -158,16 +159,20 @@ for episode in range(episode_num):
     for agent_id, r in agent_reward.items():
         episode_rewards[agent_id][episode] = r
 
+    sum_reward = sum(agent_reward.values())
+    avg_reward = sum_reward / max(step + 1, 1)
+
     with open(reward_file_path, 'a') as f:
         f.write(
-            f"episode {episode + 1}, "
-            + ", ".join(f"{aid} reward: {agent_reward[aid]:.4f}"
+            f"episode={episode + 1}, "
+            f"steps={step + 1}, "
+            + ", ".join(f"{aid}_reward={agent_reward[aid]:.4f}"
                         for aid in mappo.agent_ids)
-            + f", policy_loss: {train_info['policy_loss']:.4f}"
-            + f", value_loss: {train_info['value_loss']:.4f}\n"
+            + f", episode_total_reward={sum_reward:.4f}"
+            + f", avg_reward_per_step={avg_reward:.4f}"
+            + f", policy_loss={train_info['policy_loss']:.4f}"
+            + f", value_loss={train_info['value_loss']:.4f}\n"
         )
-
-    sum_reward = sum(agent_reward.values())
     print(
         f"[MAPPO] episode {episode + 1:3d}/{episode_num}  "
         + "  ".join(f"{aid}={agent_reward[aid]:8.4f}" for aid in mappo.agent_ids)

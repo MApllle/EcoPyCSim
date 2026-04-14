@@ -1,10 +1,10 @@
-episode 1, server_farm reward: 84.9000, server reward: 151.5300, policy_loss: -0.0494, value_loss: 0.8112
-episode 2, server_farm reward: 85.5000, server reward: 151.5200, policy_loss: -0.0306, value_loss: 0.5102
-episode 3, server_farm reward: 86.0100, server reward: 151.5100, policy_loss: -0.0336, value_loss: 0.2630
-episode 4, server_farm reward: 83.9800, server reward: 151.5200, policy_loss: -0.0321, value_loss: 0.1657
-episode 5, server_farm reward: 85.5700, server reward: 151.5300, policy_loss: -0.0317, value_loss: 0.1047
-episode 6, server_farm reward: 83.6100, server reward: 151.5300, policy_loss: -0.0372, value_loss: 0.0746
-episode 7, server_farm reward: 83.9400, server reward: 151.5200, policy_loss: -0.0419, value_loss: 0.0599
-episode 8, server_farm reward: 83.9500, server reward: 151.5200, policy_loss: -0.0346, value_loss: 0.0474
-episode 9, server_farm reward: 84.6600, server reward: 151.5200, policy_loss: -0.0318, value_loss: 0.0382
-episode 10, server_farm reward: 83.7200, server reward: 151.5400, policy_loss: -0.0320, value_loss: 0.0336
+episode=1, steps=300, server_farm_reward=73.1500, server_reward=151.5200, episode_total_reward=224.6700, avg_reward_per_step=0.7489, policy_loss=-0.0391, value_loss=0.6006
+episode=2, steps=300, server_farm_reward=73.2800, server_reward=151.5300, episode_total_reward=224.8100, avg_reward_per_step=0.7494, policy_loss=-0.0331, value_loss=0.4819
+episode=3, steps=300, server_farm_reward=73.2300, server_reward=151.5300, episode_total_reward=224.7600, avg_reward_per_step=0.7492, policy_loss=-0.0339, value_loss=0.3130
+episode=4, steps=300, server_farm_reward=73.1400, server_reward=151.5300, episode_total_reward=224.6700, avg_reward_per_step=0.7489, policy_loss=-0.0367, value_loss=0.1971
+episode=5, steps=300, server_farm_reward=73.1900, server_reward=151.5000, episode_total_reward=224.6900, avg_reward_per_step=0.7490, policy_loss=-0.0335, value_loss=0.1311
+episode=6, steps=300, server_farm_reward=73.4100, server_reward=151.5500, episode_total_reward=224.9600, avg_reward_per_step=0.7499, policy_loss=-0.0342, value_loss=0.0918
+episode=7, steps=300, server_farm_reward=72.9800, server_reward=151.5200, episode_total_reward=224.5000, avg_reward_per_step=0.7483, policy_loss=-0.0364, value_loss=0.0703
+episode=8, steps=300, server_farm_reward=73.2200, server_reward=151.5100, episode_total_reward=224.7300, avg_reward_per_step=0.7491, policy_loss=-0.0385, value_loss=0.0540
+episode=9, steps=300, server_farm_reward=73.0700, server_reward=151.5000, episode_total_reward=224.5700, avg_reward_per_step=0.7486, policy_loss=-0.0402, value_loss=0.0457
+episode=10, steps=300, server_farm_reward=72.9300, server_reward=151.5200, episode_total_reward=224.4500, avg_reward_per_step=0.7482, policy_loss=-0.0378, value_loss=0.0404

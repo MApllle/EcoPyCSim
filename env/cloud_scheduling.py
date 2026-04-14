@@ -390,7 +390,15 @@ class CloudSchedulingEnv(ParallelEnv):
   def _get_reward(self, agent):
     # Shared reward for overall system efficiency
     curr_energy_cost = sum(self.server_farms[key].get_price for key in self.server_farms.keys())
-    energy_saving_reward = self.prev_server_farm_reward - curr_energy_cost
+    prev_energy_cost = self.prev_server_farm_reward
+    if not self.task_rejected_status and prev_energy_cost > 0:
+      denom = max(abs(prev_energy_cost), 1.0)
+      energy_saving_reward = (prev_energy_cost - curr_energy_cost) / denom
+      energy_saving_reward = float(np.clip(energy_saving_reward, -1.0, 1.0))
+    else:
+      # Do not grant energy-related reward on rejection, and avoid a distorted
+      # first-step reward when the previous cost has not been initialized yet.
+      energy_saving_reward = 0.0
 
     # Encourage cooperation by rewarding task success shared across agents
     if not self.task_rejected_status:
