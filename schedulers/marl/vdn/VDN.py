@@ -132,7 +132,6 @@ class VDN:
             flat_o = self.flatten_obs(o)
             obs_t = torch.from_numpy(flat_o).unsqueeze(0).float().to(self.device)
             actions[agent_id] = self.agents[agent_id].select_action(obs_t, epsilon)
-            self.logger.info(f'{agent_id} action: {actions[agent_id]}')
         return actions
 
     # ------------------------------------------------------------------

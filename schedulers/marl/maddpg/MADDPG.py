@@ -121,13 +121,13 @@ class MADDPG:
 
     def select_action(self, obs):
         actions = {}
-        for agent, o in obs.items():
-            flat_o = self.flatten_obs(o)  # Flatten the observation
-            flat_o = torch.from_numpy(flat_o).unsqueeze(0).float().to(self.device)
-            a = self.agents[agent].action(flat_o)  # torch.Size([1, action_size])
-            # NOTE that the output is a tensor, convert it to int before input to the environment
-            actions[agent] = a.squeeze(0).argmax().item()
-            self.logger.info(f'{agent} action: {actions[agent]}')
+        with torch.no_grad():
+            for agent, o in obs.items():
+                flat_o = self.flatten_obs(o)  # Flatten the observation
+                flat_o = torch.from_numpy(flat_o).unsqueeze(0).float().to(self.device)
+                a = self.agents[agent].action(flat_o)  # torch.Size([1, action_size])
+                # NOTE that the output is a tensor, convert it to int before input to the environment
+                actions[agent] = a.squeeze(0).argmax().item()
         return actions
 
     def learn(self, batch_size, gamma):
