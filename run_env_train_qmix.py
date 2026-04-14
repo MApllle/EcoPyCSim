@@ -19,6 +19,8 @@ QMIX（Rashid et al., 2018）：两个 agent 通过单调混合网络共享联�
 """
 
 import os
+import shutil
+from datetime import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -51,7 +53,7 @@ num_jobs         = 300
 num_server_farms = 30
 num_servers      = 210
 
-episode_num      = 10
+episode_num      = 1000
 random_steps     = int(num_jobs * 0.1)   # 前 30 步纯随机探索
 learn_interval   = 5
 capacity         = int(1e6)
@@ -68,9 +70,15 @@ eps_decay_steps  = num_jobs * episode_num * 0.5   # 1500 步后达到最小值
 
 # ── 结果目录 ─────────────────────────────────────────────────────────────────
 
-res_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results', 'qmix')
+timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+res_dir = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    'results',
+    f'qmix_{timestamp}',
+)
 os.makedirs(res_dir, exist_ok=True)
 reward_file_path = os.path.join(res_dir, 'reward.txt')
+print(f"本次实验输出目录: {res_dir}")
 
 # ── 初始化 ───────────────────────────────────────────────────────────────────
 
@@ -157,6 +165,16 @@ for episode in range(episode_num):
     )
 
     qmix.save(episode_rewards)
+
+    # 每 100 轮保存一次检查点
+    if (episode + 1) % 100 == 0:
+        ckpt_dir = os.path.join(res_dir, 'checkpoints')
+        os.makedirs(ckpt_dir, exist_ok=True)
+        shutil.copy(
+            os.path.join(res_dir, 'model.pt'),
+            os.path.join(ckpt_dir, f'model_ep{episode + 1}.pt'),
+        )
+        print(f"  [checkpoint] ep{episode + 1} 已保存到 {ckpt_dir}/model_ep{episode + 1}.pt")
 
 print(f"\n训练完成，模型已保存到 {res_dir}/model.pt")
 

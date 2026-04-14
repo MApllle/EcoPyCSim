@@ -1,4 +1,6 @@
 import os
+import shutil
+from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 from schedulers.marl.maddpg.MADDPG import MADDPG
@@ -29,19 +31,25 @@ num_jobs = 300
 num_server_farms = 30
 num_servers = 210
 
-episode_num = 10
+episode_num = 1000
 random_steps = num_jobs * 0.1
-learn_iterval = 5
-capacity = int(1e6)
-batch_size = 1024
+learn_iterval = 5           # ↑ 5→15：每 episode 梯度更新 60→20 次
+capacity = 50_000            # ↓ 1e6→50k：内存 7.4GB→370MB，缓存友好
+batch_size = 256             # ↓ 1024→256：小网络(hidden=64)小批次更快
 actor_lr = 0.0005
 critic_lr = 0.0005
 gamma = 0.9
 tau = 0.1
 
-env_dir = os.path.join('./results', 'maddpg')
+timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+env_dir = os.path.join(
+  os.path.dirname(os.path.abspath(__file__)),
+  'results',
+  f'maddpg_{timestamp}'
+)
 if not os.path.exists(env_dir):
   os.makedirs(env_dir)
+print(f"本次实验输出目录: {env_dir}")
 
 reward_file_path = os.path.join(env_dir, 'reward.txt')
 env, dim_info = set_env(num_jobs=num_jobs, num_server_farms=num_server_farms, num_servers=num_servers)
@@ -115,8 +123,17 @@ for episode in range(episode_num):
     f"avg_step={avg_reward:8.4f}"
   )
 
-  #if (episode+1) % 50 == 0:
   maddpg.save(episode_rewards)
+
+  # 每 100 轮保存一次检查点
+  if (episode + 1) % 100 == 0:
+    ckpt_dir = os.path.join(env_dir, 'checkpoints')
+    os.makedirs(ckpt_dir, exist_ok=True)
+    shutil.copy(
+      os.path.join(env_dir, 'model.pt'),
+      os.path.join(ckpt_dir, f'model_ep{episode + 1}.pt'),
+    )
+    print(f"  [checkpoint] ep{episode + 1} 已保存到 {ckpt_dir}/model_ep{episode + 1}.pt")
 
 def get_running_reward(arr: np.ndarray, window=100):
   """calculate the running reward, i.e., average of last 'window' elements from rewards"""
