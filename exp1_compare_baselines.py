@@ -7,19 +7,19 @@ import torch
 from env.cloud_scheduling import CloudSchedulingEnv
 
 
-NUM_JOBS = 300
-NUM_FARMS = 30
-NUM_SERVERS = 210
+NUM_JOBS = 50
+NUM_FARMS = 2
+NUM_SERVERS = 6
 NUM_SEEDS = 5
 
 # ── 指定各算法的结果目录（相对于项目根目录）──────────────────────────────────
 # 将对应算法的目录名改为实际路径，设为 None 则跳过该算法
 MODEL_DIRS = {
     "idqn":   "results/idqn",
-    "mappo":  "results/mappo_2026_04_14_13_35_26",
+    "mappo":  "results/mappo",
     "qmix":   "results/qmix",
-    "vdn":    "results/vdn_2026_04_14_13_46_45",
-    "maddpg": "results/maddpg_2026_04_14_14_19_11",
+    "vdn":    "results/vdn",
+    "maddpg": "results/maddpg",
 }
 
 # ── 指定要运行的策略（注释掉不需要的行即可）──────────────────────────────────

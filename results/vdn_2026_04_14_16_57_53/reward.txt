@@ -1,0 +1,10 @@
+episode=1, steps=4542, epsilon=0.0100, server_farm_reward=2595.7700, server_reward=2143.9200, episode_total_reward=4739.6900, avg_reward_per_step=1.0435, rejected_tasks=369, completed_jobs=277, wall_time=605.25
+episode=2, steps=4968, epsilon=0.0100, server_farm_reward=2906.0300, server_reward=2389.4100, episode_total_reward=5295.4400, avg_reward_per_step=1.0659, rejected_tasks=171, completed_jobs=284, wall_time=672.11
+episode=3, steps=5412, epsilon=0.0100, server_farm_reward=3288.6800, server_reward=2735.1600, episode_total_reward=6023.8400, avg_reward_per_step=1.1131, rejected_tasks=163, completed_jobs=293, wall_time=630.41
+episode=4, steps=5482, epsilon=0.0100, server_farm_reward=3416.6000, server_reward=2861.8000, episode_total_reward=6278.4000, avg_reward_per_step=1.1453, rejected_tasks=196, completed_jobs=295, wall_time=647.15
+episode=5, steps=5576, epsilon=0.0100, server_farm_reward=3734.5900, server_reward=3181.1500, episode_total_reward=6915.7400, avg_reward_per_step=1.2403, rejected_tasks=139, completed_jobs=295, wall_time=650.25
+episode=6, steps=5378, epsilon=0.0100, server_farm_reward=3524.4700, server_reward=2972.0700, episode_total_reward=6496.5400, avg_reward_per_step=1.2080, rejected_tasks=80, completed_jobs=292, wall_time=691.85
+episode=7, steps=5938, epsilon=0.0100, server_farm_reward=3918.3200, server_reward=3359.1400, episode_total_reward=7277.4600, avg_reward_per_step=1.2256, rejected_tasks=116, completed_jobs=295, wall_time=591.86
+episode=8, steps=5562, epsilon=0.0100, server_farm_reward=3619.4500, server_reward=3063.4500, episode_total_reward=6682.9000, avg_reward_per_step=1.2015, rejected_tasks=58, completed_jobs=294, wall_time=623.46
+episode=9, steps=5714, epsilon=0.0100, server_farm_reward=3951.6700, server_reward=3396.2400, episode_total_reward=7347.9100, avg_reward_per_step=1.2859, rejected_tasks=37, completed_jobs=294, wall_time=656.85
+episode=10, steps=6108, epsilon=0.0100, server_farm_reward=4248.8000, server_reward=3669.8200, episode_total_reward=7918.6200, avg_reward_per_step=1.2964, rejected_tasks=54, completed_jobs=296, wall_time=751.99

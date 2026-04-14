@@ -46,14 +46,17 @@ def set_env(num_jobs, num_server_farms, num_servers):
 
 # ── 超参数 ────────────────────────────────────────────────────────────────────
 
-num_jobs         = 300
-num_server_farms = 30
-num_servers      = 210
+num_jobs         = 50
+num_server_farms = 2
+num_servers      = 6
 
-episode_num      = 1000
+episode_num      = int(os.getenv("EPISODES", "1000"))
 
 # MAPPO 专属超参
-episode_length   = num_jobs      # 每 episode 恰好处理完所有 job
+# NOTE:
+# 调度环境一个 episode 的实际决策步通常远大于 num_jobs（会受到任务依赖和时间线推进影响），
+# 这里提供更大的默认 rollout 长度，避免“只跑到 300 步就截断”导致完成作业数异常偏低。
+episode_length   = int(os.getenv("MAPPO_EPISODE_LENGTH", str(num_jobs * 25)))
 num_mini_batch   = 4             # PPO 小批量数
 ppo_epoch        = 10            # 每次 rollout 后 PPO 更新轮数
 lr               = 5e-4
@@ -169,6 +172,10 @@ for episode in range(episode_num):
 
     sum_reward = sum(agent_reward.values())
     avg_reward = sum_reward / max(step + 1, 1)
+    sf_info = info.get("server_farm", {}) if isinstance(info, dict) else {}
+    rejected_tasks = sf_info.get("rejected_tasks_count", 0)
+    completed_jobs = len(sf_info.get("completed_job_ids", []))
+    wall_time = sf_info.get("wall_time", 0)
 
     with open(reward_file_path, 'a') as f:
         f.write(
@@ -178,6 +185,9 @@ for episode in range(episode_num):
                         for aid in mappo.agent_ids)
             + f", episode_total_reward={sum_reward:.4f}"
             + f", avg_reward_per_step={avg_reward:.4f}"
+            + f", rejected_tasks={rejected_tasks}"
+            + f", completed_jobs={completed_jobs}"
+            + f", wall_time={wall_time}"
             + f", policy_loss={train_info['policy_loss']:.4f}"
             + f", value_loss={train_info['value_loss']:.4f}\n"
         )
@@ -185,6 +195,8 @@ for episode in range(episode_num):
         f"[MAPPO] episode {episode + 1:3d}/{episode_num}  "
         + "  ".join(f"{aid}={agent_reward[aid]:8.4f}" for aid in mappo.agent_ids)
         + f"  sum={sum_reward:8.4f}"
+        + f"  reject={rejected_tasks:4d}"
+        + f"  done_jobs={completed_jobs:4d}"
         + f"  π_loss={train_info['policy_loss']:.4f}"
         + f"  v_loss={train_info['value_loss']:.4f}"
     )

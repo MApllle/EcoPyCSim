@@ -133,6 +133,8 @@ class CloudSchedulingEnv(ParallelEnv):
     
     self.prev_server_farm_reward = 0
     self.prev_server_reward = 0
+    self.prev_rejected_tasks_count = 0
+    self.prev_completed_jobs_count = 0
     self._last_hetero_reward = 0.0
     self._her_numerator = 0.0
     self._her_denominator = 0.0
@@ -400,11 +402,25 @@ class CloudSchedulingEnv(ParallelEnv):
       # first-step reward when the previous cost has not been initialized yet.
       energy_saving_reward = 0.0
 
-    # Encourage cooperation by rewarding task success shared across agents
-    if not self.task_rejected_status:
-      task_success_reward = 1  # Positive reward for successful task scheduling
+    # Reward shaping with explicit service-priority:
+    # 1) strong penalty for newly rejected tasks,
+    # 2) small positive signal for successful placement decisions,
+    # 3) mild bonus when a full job gets completed.
+    rejected_delta = max(0, self.rejected_tasks_count - self.prev_rejected_tasks_count)
+    completed_delta = max(0, self.num_completed_jobs - self.prev_completed_jobs_count)
+
+    if self.task_rejected_status:
+      # Cap rejection penalty per decision step to avoid extreme negative spikes
+      # from cascade rejections that can destabilize off-policy training.
+      task_outcome_reward = -min(1.2 * rejected_delta, 8.0)
+      # Ensure a meaningful penalty even when bookkeeping edge-cases yield 0 delta.
+      task_outcome_reward = min(task_outcome_reward, -2.0)
     else:
-      task_success_reward = -2  # Penalty for task rejection
+      # Stronger positive feedback for successful placement.
+      task_outcome_reward = 1.2
+
+    # Reward full job completion more clearly to align with service objective.
+    completion_bonus = 2.0 * completed_delta
 
     # Heterogeneity-aware bonus: reward placing CPU-intensive tasks on
     # high-efficiency servers. Both agents receive the same cooperative bonus.
@@ -419,15 +435,17 @@ class CloudSchedulingEnv(ParallelEnv):
       )
       self._last_hetero_reward = hetero_bonus
 
-    # Combine global and individual rewards
-    if agent == "server_farm":
-      # Server farm reward includes both individual and global components
-      combined_reward = energy_saving_reward + (task_success_reward * 0.5) + hetero_bonus
-    elif agent == "server":
-      # Server reward focuses on cooperating to complete tasks
-      combined_reward = task_success_reward + (energy_saving_reward * 0.5) + hetero_bonus
+    # Cooperative shared reward for both agents.
+    combined_reward = (
+      (0.25 * energy_saving_reward)
+      + task_outcome_reward
+      + completion_bonus
+      + hetero_bonus
+    )
 
     self.prev_server_farm_reward = curr_energy_cost
+    self.prev_rejected_tasks_count = self.rejected_tasks_count
+    self.prev_completed_jobs_count = self.num_completed_jobs
     return round(combined_reward, 2)
   
   # event handlers

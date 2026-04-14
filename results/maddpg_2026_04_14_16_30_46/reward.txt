@@ -1,0 +1,10 @@
+episode=1, steps=2724, server_farm_reward=-2677.5700, server_reward=-1207.2200, episode_total_reward=-3884.7900, avg_reward_per_step=-1.4261, rejected_tasks=804, completed_jobs=236, wall_time=662.28
+episode=2, steps=2644, server_farm_reward=-3302.5600, server_reward=-1338.6300, episode_total_reward=-4641.1900, avg_reward_per_step=-1.7554, rejected_tasks=1011, completed_jobs=217, wall_time=563.05
+episode=3, steps=2672, server_farm_reward=-2671.1500, server_reward=-1178.3300, episode_total_reward=-3849.4800, avg_reward_per_step=-1.4407, rejected_tasks=815, completed_jobs=233, wall_time=607.98
+episode=4, steps=2632, server_farm_reward=-2888.0600, server_reward=-1240.6500, episode_total_reward=-4128.7100, avg_reward_per_step=-1.5687, rejected_tasks=880, completed_jobs=227, wall_time=635.19
+episode=5, steps=2642, server_farm_reward=-2735.4000, server_reward=-1320.8500, episode_total_reward=-4056.2500, avg_reward_per_step=-1.5353, rejected_tasks=787, completed_jobs=224, wall_time=620.96
+episode=6, steps=2602, server_farm_reward=-2730.4400, server_reward=-1359.8100, episode_total_reward=-4090.2500, avg_reward_per_step=-1.5720, rejected_tasks=769, completed_jobs=228, wall_time=579.32
+episode=7, steps=2548, server_farm_reward=-3179.2300, server_reward=-1427.0200, episode_total_reward=-4606.2500, avg_reward_per_step=-1.8078, rejected_tasks=932, completed_jobs=206, wall_time=521.25
+episode=8, steps=2582, server_farm_reward=-2804.2400, server_reward=-1375.3900, episode_total_reward=-4179.6300, avg_reward_per_step=-1.6188, rejected_tasks=799, completed_jobs=212, wall_time=558.62
+episode=9, steps=2642, server_farm_reward=-2684.3900, server_reward=-1236.6200, episode_total_reward=-3921.0100, avg_reward_per_step=-1.4841, rejected_tasks=795, completed_jobs=237, wall_time=629.17
+episode=10, steps=2590, server_farm_reward=-2544.8100, server_reward=-1265.2000, episode_total_reward=-3810.0100, avg_reward_per_step=-1.4710, rejected_tasks=734, completed_jobs=225, wall_time=635.89

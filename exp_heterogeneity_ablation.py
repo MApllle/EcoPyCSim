@@ -26,9 +26,9 @@ SERVER_MIXES = {
     "modern":   {"old": 0.10, "mid": 0.20, "new": 0.70},
 }
 
-NUM_JOBS    = 300
-NUM_FARMS   = 30
-NUM_SERVERS = 210
+NUM_JOBS    = 50
+NUM_FARMS   = 2
+NUM_SERVERS = 6
 NUM_SEEDS   = 5
 RESULTS_DIR = "results"
 

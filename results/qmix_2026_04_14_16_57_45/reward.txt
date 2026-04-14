@@ -1,0 +1,10 @@
+episode=1, steps=4274, epsilon=0.0500, server_farm_reward=2033.2400, server_reward=1633.9000, episode_total_reward=3667.1400, avg_reward_per_step=0.8580, rejected_tasks=497, completed_jobs=264, wall_time=601.86
+episode=2, steps=2874, epsilon=0.0500, server_farm_reward=426.1600, server_reward=195.3400, episode_total_reward=621.5000, avg_reward_per_step=0.2162, rejected_tasks=612, completed_jobs=236, wall_time=616.42
+episode=3, steps=2840, epsilon=0.0500, server_farm_reward=352.5100, server_reward=88.6700, episode_total_reward=441.1800, avg_reward_per_step=0.1553, rejected_tasks=699, completed_jobs=241, wall_time=609.95
+episode=4, steps=2694, epsilon=0.0500, server_farm_reward=188.1900, server_reward=-34.7800, episode_total_reward=153.4100, avg_reward_per_step=0.0569, rejected_tasks=695, completed_jobs=234, wall_time=529.02
+episode=5, steps=2764, epsilon=0.0500, server_farm_reward=305.5800, server_reward=61.5700, episode_total_reward=367.1500, avg_reward_per_step=0.1328, rejected_tasks=573, completed_jobs=237, wall_time=600.72
+episode=6, steps=2752, epsilon=0.0500, server_farm_reward=237.7800, server_reward=-0.7900, episode_total_reward=236.9900, avg_reward_per_step=0.0861, rejected_tasks=605, completed_jobs=234, wall_time=580.59
+episode=7, steps=2734, epsilon=0.0500, server_farm_reward=167.0300, server_reward=-33.9400, episode_total_reward=133.0900, avg_reward_per_step=0.0487, rejected_tasks=685, completed_jobs=222, wall_time=565.99
+episode=8, steps=2830, epsilon=0.0500, server_farm_reward=162.7500, server_reward=-84.0900, episode_total_reward=78.6600, avg_reward_per_step=0.0278, rejected_tasks=679, completed_jobs=231, wall_time=585.23
+episode=9, steps=2720, epsilon=0.0500, server_farm_reward=203.5000, server_reward=-26.0300, episode_total_reward=177.4700, avg_reward_per_step=0.0652, rejected_tasks=603, completed_jobs=228, wall_time=563.83
+episode=10, steps=2726, epsilon=0.0500, server_farm_reward=-2.0400, server_reward=-207.6400, episode_total_reward=-209.6800, avg_reward_per_step=-0.0769, rejected_tasks=798, completed_jobs=228, wall_time=538.97

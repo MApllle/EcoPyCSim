@@ -49,24 +49,24 @@ def set_env(num_jobs, num_server_farms, num_servers):
 
 # ── 超参数（与 VDN / IDQN 脚本完全一致，保证公平对比） ─────────────────────────
 
-num_jobs         = 300
-num_server_farms = 30
-num_servers      = 210
+num_jobs         = 50
+num_server_farms = 2
+num_servers      = 6
 
-episode_num      = 1000
-random_steps     = int(num_jobs * 0.1)   # 前 30 步纯随机探索
-learn_interval   = 5
+episode_num      = int(os.getenv("EPISODES", "1000"))
+random_steps     = max(int(num_jobs * 2), int(num_jobs * episode_num * 0.1))
+learn_interval   = 10
 capacity         = int(1e6)
-batch_size       = 1024
-lr               = 0.0005
+batch_size       = 512
+lr               = 0.0003
 gamma            = 0.9
-tau              = 0.1
+tau              = 0.02
 embed_dim        = 32                    # 混合网络隐层维度（QMIX 新增超参）
 
 # Epsilon-greedy 衰减：在前半段 episodes 的所有步内线性衰减
 eps_start        = 1.0
-eps_end          = 0.01
-eps_decay_steps  = num_jobs * episode_num * 0.5   # 1500 步后达到最小值
+eps_end          = 0.05
+eps_decay_steps  = max(int(num_jobs * episode_num * 0.9), 1)
 
 # ── 结果目录 ─────────────────────────────────────────────────────────────────
 
@@ -143,6 +143,10 @@ for episode in range(episode_num):
 
     sum_reward = sum(agent_reward.values())
     avg_reward = sum_reward / max(step, 1)
+    sf_info = info.get("server_farm", {}) if isinstance(info, dict) else {}
+    rejected_tasks = sf_info.get("rejected_tasks_count", 0)
+    completed_jobs = len(sf_info.get("completed_job_ids", []))
+    wall_time = sf_info.get("wall_time", 0)
 
     with open(reward_file_path, 'a') as f:
         f.write(
@@ -152,7 +156,10 @@ for episode in range(episode_num):
             f"server_farm_reward={agent_reward['server_farm']:.4f}, "
             f"server_reward={agent_reward['server']:.4f}, "
             f"episode_total_reward={sum_reward:.4f}, "
-            f"avg_reward_per_step={avg_reward:.4f}\n"
+            f"avg_reward_per_step={avg_reward:.4f}, "
+            f"rejected_tasks={rejected_tasks}, "
+            f"completed_jobs={completed_jobs}, "
+            f"wall_time={wall_time}\n"
         )
 
     print(
@@ -161,7 +168,9 @@ for episode in range(episode_num):
         f"server_farm={agent_reward['server_farm']:8.4f}  "
         f"server={agent_reward['server']:8.4f}  "
         f"sum={sum_reward:8.4f}  "
-        f"avg_step={avg_reward:8.4f}"
+        f"avg_step={avg_reward:8.4f}  "
+        f"reject={rejected_tasks:4d}  "
+        f"done_jobs={completed_jobs:4d}"
     )
 
     qmix.save(episode_rewards)

@@ -39,11 +39,11 @@ def set_env(num_jobs, num_server_farms, num_servers):
 
 # ── 超参数（与 MADDPG 脚本保持一致，方便公平对比）───────────────────────────
 
-num_jobs         = 300
-num_server_farms = 30
-num_servers      = 210
+num_jobs         = 50
+num_server_farms = 2
+num_servers      = 6
 
-episode_num      = 1000
+episode_num      = int(os.getenv("EPISODES", "1000"))
 random_steps     = int(num_jobs * 0.1)   # 前 30 步纯随机探索
 learn_interval   = 5
 capacity         = int(1e6)
@@ -131,6 +131,10 @@ for episode in range(episode_num):
 
     sum_reward = sum(agent_reward.values())
     avg_reward = sum_reward / max(step, 1)
+    sf_info = info.get("server_farm", {}) if isinstance(info, dict) else {}
+    rejected_tasks = sf_info.get("rejected_tasks_count", 0)
+    completed_jobs = len(sf_info.get("completed_job_ids", []))
+    wall_time = sf_info.get("wall_time", 0)
 
     with open(reward_file_path, 'a') as f:
         f.write(
@@ -140,7 +144,10 @@ for episode in range(episode_num):
             f"server_farm_reward={agent_reward['server_farm']:.4f}, "
             f"server_reward={agent_reward['server']:.4f}, "
             f"episode_total_reward={sum_reward:.4f}, "
-            f"avg_reward_per_step={avg_reward:.4f}\n"
+            f"avg_reward_per_step={avg_reward:.4f}, "
+            f"rejected_tasks={rejected_tasks}, "
+            f"completed_jobs={completed_jobs}, "
+            f"wall_time={wall_time}\n"
         )
 
     print(
@@ -149,7 +156,9 @@ for episode in range(episode_num):
         f"server_farm={agent_reward['server_farm']:8.4f}  "
         f"server={agent_reward['server']:8.4f}  "
         f"sum={sum_reward:8.4f}  "
-        f"avg_step={avg_reward:8.4f}"
+        f"avg_step={avg_reward:8.4f}  "
+        f"reject={rejected_tasks:4d}  "
+        f"done_jobs={completed_jobs:4d}"
     )
 
     idqn.save(episode_rewards)

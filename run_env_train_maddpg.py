@@ -27,19 +27,22 @@ def set_env(num_jobs, num_server_farms, num_servers):
   
   return env, _dim_info
 
-num_jobs = 300
-num_server_farms = 30
-num_servers = 210
+num_jobs = 50
+num_server_farms = 2
+num_servers = 6
 
-episode_num = 1000
-random_steps = num_jobs * 0.1
+episode_num = int(os.getenv("EPISODES", "1000"))
+random_steps = max(int(num_jobs * 2), int(num_jobs * episode_num * 0.1))
 learn_iterval = 5           # ↑ 5→15：每 episode 梯度更新 60→20 次
 capacity = 50_000            # ↓ 1e6→50k：内存 7.4GB→370MB，缓存友好
 batch_size = 256             # ↓ 1024→256：小网络(hidden=64)小批次更快
-actor_lr = 0.0005
-critic_lr = 0.0005
+actor_lr = 0.0003
+critic_lr = 0.0003
 gamma = 0.9
-tau = 0.1
+tau = 0.02
+eps_start = 1.0
+eps_end = 0.05
+eps_decay_steps = max(int(num_jobs * episode_num * 0.9), 1)
 
 timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 env_dir = os.path.join(
@@ -68,6 +71,7 @@ maddpg = MADDPG(
 
 agent_num = env.num_agents
 episode_rewards = {agent_id: np.zeros(episode_num) for agent_id in env.agents}
+global_step = 0
 
 for episode in range(episode_num):
   obs, info = env.reset()
@@ -76,7 +80,14 @@ for episode in range(episode_num):
   step = 0
   while env.agents:
     step += 1
-    if episode == 0 and step < random_steps:
+    global_step += 1
+    if global_step <= random_steps:
+      epsilon = 1.0
+    else:
+      decay_progress = min(1.0, (global_step - random_steps) / eps_decay_steps)
+      epsilon = eps_start - (eps_start - eps_end) * decay_progress
+
+    if np.random.rand() < epsilon:
       action = {agent_id: env.action_space(agent_id).sample() for agent_id in env.agents}
     else:
       action = maddpg.select_action(obs)
@@ -91,7 +102,7 @@ for episode in range(episode_num):
     
     obs = next_obs
     
-    if step >= random_steps and step % learn_iterval == 0:
+    if global_step > random_steps and global_step % learn_iterval == 0:
       maddpg.learn(batch_size, gamma)
       maddpg.update_target(tau)
     
@@ -106,21 +117,32 @@ for episode in range(episode_num):
     server_reward = agent_reward['server']
     sum_reward = sum(agent_reward.values())
     avg_reward = sum_reward / max(step, 1)
+    sf_info = info.get("server_farm", {}) if isinstance(info, dict) else {}
+    rejected_tasks = sf_info.get("rejected_tasks_count", 0)
+    completed_jobs = len(sf_info.get("completed_job_ids", []))
+    wall_time = sf_info.get("wall_time", 0)
     file.write(
       f"episode={episode + 1}, "
       f"steps={step}, "
+      f"epsilon={epsilon:.4f}, "
       f"server_farm_reward={server_farm_reward:.4f}, "
       f"server_reward={server_reward:.4f}, "
       f"episode_total_reward={sum_reward:.4f}, "
-      f"avg_reward_per_step={avg_reward:.4f}\n"
+      f"avg_reward_per_step={avg_reward:.4f}, "
+      f"rejected_tasks={rejected_tasks}, "
+      f"completed_jobs={completed_jobs}, "
+      f"wall_time={wall_time}\n"
     )
 
   print(
     f"[MADDPG] episode {episode + 1:3d}/{episode_num}  "
+    f"eps={epsilon:.3f}  "
     f"server_farm={server_farm_reward:8.4f}  "
     f"server={server_reward:8.4f}  "
     f"sum={sum_reward:8.4f}  "
-    f"avg_step={avg_reward:8.4f}"
+    f"avg_step={avg_reward:8.4f}  "
+    f"reject={rejected_tasks:4d}  "
+    f"done_jobs={completed_jobs:4d}"
   )
 
   maddpg.save(episode_rewards)

@@ -1,0 +1,10 @@
+episode=1, steps=3790, epsilon=0.0100, server_farm_reward=-385.2700, server_reward=264.5800, episode_total_reward=-120.6900, avg_reward_per_step=-0.0318, rejected_tasks=466, completed_jobs=250, wall_time=709.05
+episode=2, steps=2578, epsilon=0.0100, server_farm_reward=-2662.7000, server_reward=-1136.9000, episode_total_reward=-3799.6000, avg_reward_per_step=-1.4739, rejected_tasks=841, completed_jobs=208, wall_time=574.74
+episode=3, steps=2790, epsilon=0.0100, server_farm_reward=-2602.7200, server_reward=-921.1400, episode_total_reward=-3523.8600, avg_reward_per_step=-1.2630, rejected_tasks=889, completed_jobs=234, wall_time=552.76
+episode=4, steps=2840, epsilon=0.0100, server_farm_reward=-2135.6500, server_reward=-714.7100, episode_total_reward=-2850.3600, avg_reward_per_step=-1.0036, rejected_tasks=783, completed_jobs=236, wall_time=632.45
+episode=5, steps=2812, epsilon=0.0100, server_farm_reward=-1664.3000, server_reward=-620.2300, episode_total_reward=-2284.5300, avg_reward_per_step=-0.8124, rejected_tasks=641, completed_jobs=220, wall_time=583.99
+episode=6, steps=2908, epsilon=0.0100, server_farm_reward=-2067.4500, server_reward=-740.9900, episode_total_reward=-2808.4400, avg_reward_per_step=-0.9658, rejected_tasks=743, completed_jobs=243, wall_time=665.07
+episode=7, steps=2884, epsilon=0.0100, server_farm_reward=-1705.9400, server_reward=-544.6800, episode_total_reward=-2250.6200, avg_reward_per_step=-0.7804, rejected_tasks=680, completed_jobs=236, wall_time=661.1
+episode=8, steps=2804, epsilon=0.0100, server_farm_reward=-2009.6200, server_reward=-870.0600, episode_total_reward=-2879.6800, avg_reward_per_step=-1.0270, rejected_tasks=675, completed_jobs=225, wall_time=605.14
+episode=9, steps=2832, epsilon=0.0100, server_farm_reward=-2009.1800, server_reward=-897.2400, episode_total_reward=-2906.4200, avg_reward_per_step=-1.0263, rejected_tasks=661, completed_jobs=234, wall_time=565.88
+episode=10, steps=2864, epsilon=0.0100, server_farm_reward=-2152.4800, server_reward=-929.0600, episode_total_reward=-3081.5400, avg_reward_per_step=-1.0760, rejected_tasks=713, completed_jobs=217, wall_time=615.38
