@@ -1,5 +1,0 @@
-episode=1, steps=3914, epsilon=0.0500, server_farm_reward=-910.4900, server_reward=-103.3000, episode_total_reward=-1013.7900, avg_reward_per_step=-0.2590, rejected_tasks=529, completed_jobs=252, wall_time=626.63
-episode=2, steps=2608, epsilon=0.0500, server_farm_reward=-2717.9500, server_reward=-1197.2000, episode_total_reward=-3915.1500, avg_reward_per_step=-1.5012, rejected_tasks=828, completed_jobs=228, wall_time=611.3
-episode=3, steps=2758, epsilon=0.0500, server_farm_reward=-2597.3100, server_reward=-1211.4400, episode_total_reward=-3808.7500, avg_reward_per_step=-1.3810, rejected_tasks=773, completed_jobs=230, wall_time=631.42
-episode=4, steps=2606, epsilon=0.0500, server_farm_reward=-2842.9300, server_reward=-1274.1900, episode_total_reward=-4117.1200, avg_reward_per_step=-1.5799, rejected_tasks=850, completed_jobs=221, wall_time=595.98
-episode=5, steps=2610, epsilon=0.0500, server_farm_reward=-2816.0000, server_reward=-1192.6100, episode_total_reward=-4008.6100, avg_reward_per_step=-1.5359, rejected_tasks=874, completed_jobs=218, wall_time=571.55

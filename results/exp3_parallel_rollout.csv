@@ -1,5 +1,0 @@
-workers,mode,wall_s,speedup_vs_serial
-1,serial_for_loop,11.294,1.0
-2,process_pool_chunked,8.4077,1.3433
-4,process_pool_chunked,5.1875,2.1772
-8,process_pool_chunked,4.2241,2.6737
