@@ -141,6 +141,7 @@ def plot_exp1(csv_path):
         ("total_price_mean", "total_price_std",  "总能耗成本对比",         "Total Energy Cost",     "exp1_energy_cost.png",     True),
         ("eet_mean",          "eet_std",           "单任务能耗 (EET) 对比",  "Energy per Task (EET)", "exp1_eet.png",              True),
         ("energy_per_completed_task_mean", "energy_per_completed_task_std", "每完成任务能耗对比", "Energy per Completed Task", "exp1_energy_per_completed_task.png", True),
+        ("wall_time_mean",    "wall_time_std",     "总完成时间 (Wall Time) 对比", "Wall Time",          "exp1_wall_time.png",        True),
         ("rejected_tasks_mean","rejected_tasks_std","任务拒绝数对比",         "Rejected Tasks",        "exp1_rejected.png",         True),
         ("scheduling_success_rate_mean", "scheduling_success_rate_std", "任务调度成功率对比", "Scheduling Success Rate", "exp1_success_rate.png", False),
         ("scheduling_reject_rate_mean", "scheduling_reject_rate_std", "任务调度拒绝率对比", "Scheduling Reject Rate", "exp1_reject_rate.png", True),
@@ -388,7 +389,7 @@ def plot_learning_curves(results_dir="results"):
 # ── Entry point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    exp1_csv = os.path.join("results", "exp1_baseline_comparison_compat.csv")
+    exp1_csv = os.path.join("results", "exp1_baseline_comparison.csv")
     exp2_csv = os.path.join("results", "exp2_heterogeneity_ablation.csv")
 
     if os.path.exists(exp1_csv):
