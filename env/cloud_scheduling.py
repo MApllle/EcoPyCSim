@@ -17,6 +17,8 @@ class CloudSchedulingEnv(ParallelEnv):
     use_heterogeneity: bool = True,
     hetero_weight: float = 0.3,
     server_proportions=None,
+    use_potential_shaping: bool = False,
+    shaping_gamma: float = 0.9,
   ):
 
     self.num_jobs = num_jobs
@@ -31,6 +33,10 @@ class CloudSchedulingEnv(ParallelEnv):
     self.hetero_weight      = hetero_weight
     self.server_proportions = server_proportions
     self._last_hetero_reward = 0.0
+
+    # potential-based reward shaping controls (A2)
+    self.use_potential_shaping = use_potential_shaping
+    self.shaping_gamma         = shaping_gamma
     # HER accumulators (reset each episode)
     self._her_numerator = 0.0   # Σ task_cpu × efficiency_tier (scheduled tasks)
     self._her_denominator = 0.0  # Σ task_cpu (scheduled tasks)
@@ -138,6 +144,10 @@ class CloudSchedulingEnv(ParallelEnv):
     self._last_hetero_reward = 0.0
     self._her_numerator = 0.0
     self._her_denominator = 0.0
+    # Lagrangian signals (A1)
+    self._last_energy_reward    = 0.0
+    self._last_constraint_cost  = 0.0
+    self._is_scheduling_step    = False
     
     self.active_job_ids = []
     self.completed_job_ids = set()
@@ -161,21 +171,31 @@ class CloudSchedulingEnv(ParallelEnv):
   
   def step(self, actions):
     if self.schedulable_tasks:
+      self._is_scheduling_step = True
+      phi_prev = self._compute_potential() if self.use_potential_shaping else 0.0
+
       self._take_action(actions)
-      
+
       obs = {agent: self._get_observation(agent) for agent in self.agents}
       reward = {agent: self._get_reward(agent) for agent in self.agents}
+
+      if self.use_potential_shaping:
+        phi_curr = self._compute_potential()
+        shaping = self.shaping_gamma * phi_curr - phi_prev
+        reward = {agent: round(r + shaping, 4) for agent, r in reward.items()}
+
       terminated = {agent: False for agent in self.agents}
       truncated = {agent: False for agent in self.agents}
       infos = {agent: self.info(agent) for agent in self.agents}
-      
+
       self.scheduled_task_deadline = 0
       self.task_rejected_status = False
       return obs, reward, terminated, truncated, infos
-    
+
     # step through timeline until next scheduling event
+    self._is_scheduling_step = False
     self._resume_simulation()
-    
+
     obs = {agent: self._get_observation(agent) for agent in self.agents}
     reward = {agent: 0 for agent in self.agents}
     terminated = {agent: False for agent in self.agents}
@@ -184,7 +204,7 @@ class CloudSchedulingEnv(ParallelEnv):
       terminated = {agent: True for agent in self.agents}
     truncated = {agent: False for agent in self.agents}
     infos = {agent: self.info(agent) for agent in self.agents}
-    
+
     return obs, reward, terminated, truncated, infos
   
   @property
@@ -217,6 +237,24 @@ class CloudSchedulingEnv(ParallelEnv):
       return 1.0
     return round((total ** 2) / (n * sum(u ** 2 for u in utils)), 4)
 
+  def _compute_potential(self) -> float:
+    """Φ(s) for potential-based reward shaping (A2).
+    Jain's fairness index over active (loaded) servers only.
+    High when workload is evenly spread; 0 when fewer than 2 servers are active.
+    """
+    active = [
+      server.cpu_utilization_rate
+      for farm in self.server_farms.values()
+      for server in farm.servers.values()
+      if server.cpu_utilization_rate > 0
+    ]
+    if len(active) < 2:
+      return 0.0
+    n = len(active)
+    s = sum(active)
+    sq_s = sum(u * u for u in active)
+    return (s * s) / (n * sq_s)
+
   def _compute_active_server_ratio(self) -> float:
     """Fraction of servers currently handling at least one VM."""
     all_servers = [
@@ -247,10 +285,13 @@ class CloudSchedulingEnv(ParallelEnv):
       "wall_time": self.wall_time,
       "price": round(sum(server_farm.get_price for server_farm in self.server_farms.values()), 2),
       "hetero_reward_total": self._last_hetero_reward,
-      # New metrics
       "jains_fairness": self._compute_jains_fairness(),
       "active_server_ratio": self._compute_active_server_ratio(),
       "her": self._compute_her(),
+      # Lagrangian MADDPG signals (A1)
+      "energy_reward": self._last_energy_reward,
+      "constraint_cost": self._last_constraint_cost,
+      "is_scheduling_step": self._is_scheduling_step,
       }
       return info
     elif agent == "server":
@@ -446,6 +487,9 @@ class CloudSchedulingEnv(ParallelEnv):
     self.prev_server_farm_reward = curr_energy_cost
     self.prev_rejected_tasks_count = self.rejected_tasks_count
     self.prev_completed_jobs_count = self.num_completed_jobs
+    # cache raw signals for Lagrangian MADDPG (A1)
+    self._last_energy_reward   = energy_saving_reward
+    self._last_constraint_cost = 1.0 if self.task_rejected_status else 0.0
     return round(combined_reward, 2)
   
   # event handlers

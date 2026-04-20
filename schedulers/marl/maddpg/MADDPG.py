@@ -42,31 +42,74 @@ class MADDPG:
         else torch.device("cpu")
     )
 
-    def __init__(self, dim_info, capacity, batch_size, actor_lr, critic_lr, res_dir, device=None):
+    def __init__(
+        self,
+        dim_info,
+        capacity,
+        batch_size,
+        actor_lr,
+        critic_lr,
+        res_dir,
+        use_attention_critic: bool = False,
+        num_servers: int = None,
+        device=None,
+    ):
         self.device = device if device is not None else (
             torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         )
-        # sum all the dims of each agent to get input dim for critic
         global_obs_dim = sum(
-            sum(np.prod(obs_shape) for obs_shape in val['obs_shape'].values())
+            sum(int(np.prod(s)) for s in val['obs_shape'].values())
             for val in dim_info.values()
         )
         global_act_dim = sum(val['action_dim'] for val in dim_info.values())
-        
-        # create Agent(actor-critic) and replay buffer for each agent
-        self.agents = {}
+
+        # Pre-compute attention critic kwargs from dim_info when requested.
+        # Assumes server_farm obs comes first (dict insertion order).
+        attn_kwargs = None
+        if use_attention_critic:
+            assert num_servers is not None, "num_servers required for attention critic"
+            sf_offsets   = self._obs_offsets(dim_info, 'server_farm')
+            task_indices = (
+                sf_offsets['task_cpu'][0],
+                sf_offsets['task_ram'][0],
+                sf_offsets['task_deadline'][0],
+            )
+            wall_idx = sf_offsets['wall_time'][0]
+            attn_kwargs = dict(
+                global_obs_dim       = global_obs_dim,
+                global_act_dim       = global_act_dim,
+                num_servers          = num_servers,
+                task_feature_indices = task_indices,
+                wall_time_idx        = wall_idx,
+            )
+
+        self.agents  = {}
         self.buffers = {}
         for agent_id, info in dim_info.items():
-            obs_dim = sum(np.prod(obs_shape) for obs_shape in info['obs_shape'].values())
+            obs_dim = sum(int(np.prod(s)) for s in info['obs_shape'].values())
             act_dim = info['action_dim']
-            #print(f"Initializing agent {agent_id}: obs_dim={obs_dim}, act_dim={act_dim}")
-            self.agents[agent_id] = Agent(obs_dim, act_dim, global_obs_dim + global_act_dim, actor_lr, critic_lr, self.device)
+            self.agents[agent_id] = Agent(
+                obs_dim, act_dim, global_obs_dim + global_act_dim,
+                actor_lr, critic_lr, self.device,
+                attention_critic_kwargs=attn_kwargs,
+            )
             self.buffers[agent_id] = Buffer(capacity, obs_dim, act_dim, self.device)
         self.dim_info = dim_info
 
         self.batch_size = batch_size
-        self.res_dir = res_dir  # directory to save the training result
-        self.logger = setup_logger(os.path.join(res_dir, 'maddpg.log'))
+        self.res_dir    = res_dir
+        self.logger     = setup_logger(os.path.join(res_dir, 'maddpg.log'))
+
+    @staticmethod
+    def _obs_offsets(dim_info, agent_id):
+        """Return {key: (start, end)} index ranges in the flattened obs for agent_id."""
+        obs_shape = dim_info[agent_id]['obs_shape']
+        offsets, cursor = {}, 0
+        for key in sorted(obs_shape.keys()):
+            size = int(np.prod(obs_shape[key]))
+            offsets[key] = (cursor, cursor + size)
+            cursor += size
+        return offsets
 
     def flatten_obs(self, obs_dict):
         #print("obs dict: ")
