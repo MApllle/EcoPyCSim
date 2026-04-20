@@ -608,6 +608,121 @@ def parallel_episodes_sweep(
         )
 
 
+def hier_marl_inference_scaling(
+    n_values: list[int],
+    m_per_farm: int,
+    num_jobs: int,
+    steps_per_point: int,
+    results_dir: str,
+) -> None:
+    """Profile per-step inference time for HierMARL vs CommonActor at different N values.
+
+    Uses randomly-initialized models — no trained weights required.
+    Demonstrates that HierMARL actor inference scales linearly with N,
+    while CommonActor actor scales similarly (both are O(N) for actors).
+    The key architectural difference is the CRITIC dimension (see exp_critic_dim_analysis.py).
+    """
+    import time as _time
+    import torch
+    from env.cloud_scheduling_hier import CloudSchedulingEnvHier
+    from schedulers.marl.hier_marl.HierMARL import HierMARL
+    from schedulers.marl.common_actor.CommonActor import CommonActor
+
+    rows: list[dict[str, Any]] = []
+
+    for n in n_values:
+        total_servers = n * m_per_farm
+        env = CloudSchedulingEnvHier(
+            num_jobs=num_jobs,
+            num_server_farms=n,
+            num_servers=total_servers,
+        )
+        obs, _ = env.reset(seed=42)
+
+        dim_info: dict[str, Any] = {}
+        for aid in env.agents:
+            obs_space = env.observation_space(aid)
+            dim_info[aid] = {
+                "obs_shape": {k: s.shape for k, s in obs_space.spaces.items()},
+                "action_dim": env.action_space(aid).n,
+            }
+
+        tmp_dir = os.path.join(results_dir, "_tmp_hier_scaling")
+        os.makedirs(tmp_dir, exist_ok=True)
+
+        hier = HierMARL(dim_info, capacity=1, batch_size=1,
+                        actor_lr=3e-4, critic_lr=3e-4, res_dir=tmp_dir)
+        ca   = CommonActor(dim_info, capacity=1, batch_size=1,
+                           actor_lr=3e-4, critic_lr=3e-4, res_dir=tmp_dir)
+
+        # Warm up
+        for _ in range(5):
+            hier.select_action(obs)
+            ca.select_action(obs)
+
+        # Time HierMARL inference
+        t0 = _time.perf_counter()
+        for _ in range(steps_per_point):
+            hier.select_action(obs)
+        hier_ms = (_time.perf_counter() - t0) / steps_per_point * 1000.0
+
+        # Time CommonActor inference
+        t0 = _time.perf_counter()
+        for _ in range(steps_per_point):
+            ca.select_action(obs)
+        ca_ms = (_time.perf_counter() - t0) / steps_per_point * 1000.0
+
+        rows.append({
+            "N": n,
+            "M": m_per_farm,
+            "total_servers": total_servers,
+            "hier_ms_per_step": round(hier_ms, 4),
+            "ca_ms_per_step": round(ca_ms, 4),
+            "hier_speedup": round(ca_ms / hier_ms, 4) if hier_ms > 0 else 0.0,
+        })
+        print(
+            f"  N={n:3d} M={m_per_farm}  HierMARL={hier_ms:.3f}ms  "
+            f"CommonActor={ca_ms:.3f}ms  speedup={ca_ms/hier_ms if hier_ms>0 else 0:.2f}x"
+        )
+        env.close()
+
+    csv_path = os.path.join(results_dir, "exp3_hier_inference_scaling.csv")
+    write_csv(csv_path, list(rows[0].keys()), rows)
+    print(f"\nCSV 已写入: {csv_path}")
+
+    ns   = [r["N"]              for r in rows]
+    h_ms = [r["hier_ms_per_step"] for r in rows]
+    c_ms = [r["ca_ms_per_step"]   for r in rows]
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+
+    ax = axes[0]
+    ax.plot(ns, h_ms, "o-",  color="C0", lw=2, label="HierMARL")
+    ax.plot(ns, c_ms, "s--", color="C1", lw=2, label="CommonActor")
+    ax.set_xlabel("Number of server farms (N)")
+    ax.set_ylabel("Inference time per step (ms)")
+    ax.set_title(f"Inference latency vs N  (M={m_per_farm} servers/farm)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    ax.set_xticks(ns)
+
+    ax = axes[1]
+    sp = [r["hier_speedup"] for r in rows]
+    ax.bar(ns, sp, color="C2", alpha=0.8, edgecolor="black")
+    ax.axhline(y=1.0, color="gray", linestyle="--", alpha=0.5)
+    ax.set_xlabel("Number of server farms (N)")
+    ax.set_ylabel("Speedup (CommonActor / HierMARL)")
+    ax.set_title("HierMARL inference speedup over CommonActor")
+    ax.grid(True, alpha=0.3, axis="y")
+    ax.set_xticks(ns)
+
+    plt.tight_layout()
+    png_path = os.path.join(results_dir, "exp3_hier_inference_scaling.png")
+    plt.savefig(png_path, dpi=150)
+    plt.close()
+    print(f"图已写入: {png_path}")
+
+
 def run_scalability_for_mode(
     scale_mode: str,
     args: argparse.Namespace,
@@ -742,11 +857,34 @@ def main() -> None:
     parser.add_argument(
         "--skip-scalability",
         action="store_true",
-        help="跳过规模扫描，仅执行 --parallel-benchmark / --parallel-episodes-sweep",
+        help="跳过规模扫描，仅执行 --parallel-benchmark / --parallel-episodes-sweep / --hier-scaling",
+    )
+    parser.add_argument(
+        "--hier-scaling",
+        action="store_true",
+        help="测量 HierMARL vs CommonActor 在不同 N 下的推理时延（随机初始化权重）",
+    )
+    parser.add_argument(
+        "--hier-n-values",
+        type=str,
+        default="2,5,10,20,50",
+        help="--hier-scaling 时扫描的 farm 数列表（逗号分隔）",
+    )
+    parser.add_argument(
+        "--hier-m",
+        type=int,
+        default=6,
+        help="--hier-scaling 时每个 farm 的服务器数（固定）",
+    )
+    parser.add_argument(
+        "--hier-steps",
+        type=int,
+        default=200,
+        help="--hier-scaling 每个数据点的推理次数（用于计时平均）",
     )
     args = parser.parse_args()
 
-    if args.skip_scalability and not args.parallel_benchmark and not args.parallel_episodes_sweep:
+    if args.skip_scalability and not args.parallel_benchmark and not args.parallel_episodes_sweep and not args.hier_scaling:
         parser.error("--skip-scalability 需配合 --parallel-benchmark 或 --parallel-episodes-sweep")
 
     results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results")
@@ -813,6 +951,20 @@ def main() -> None:
             use_heterogeneity=use_heterogeneity,
             hetero_weight=hetero_weight,
             proportion_key=args.proportion,
+            results_dir=results_dir,
+        )
+
+    if args.hier_scaling:
+        n_list = [int(x) for x in parse_int_list(args.hier_n_values) if x > 0]
+        print(
+            f"\nHierMARL vs CommonActor 推理时延扫描 "
+            f"(N={n_list}, M={args.hier_m}, steps={args.hier_steps})…"
+        )
+        hier_marl_inference_scaling(
+            n_values=n_list,
+            m_per_farm=args.hier_m,
+            num_jobs=args.num_jobs,
+            steps_per_point=args.hier_steps,
             results_dir=results_dir,
         )
 

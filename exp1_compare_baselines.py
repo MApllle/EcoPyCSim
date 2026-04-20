@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 from env.cloud_scheduling import CloudSchedulingEnv
+from env.cloud_scheduling_hier import CloudSchedulingEnvHier
 
 
 NUM_JOBS = 50
@@ -15,31 +16,52 @@ NUM_SEEDS = 5
 # ── 指定各算法的结果目录（相对于项目根目录）──────────────────────────────────
 # 将对应算法的目录名改为实际路径，设为 None 则跳过该算法
 MODEL_DIRS = {
-    "idqn":   "results/idqn",
+    # "idqn":   "results/idqn",
     "mappo":  "results/mappo",
-    "qmix":   "results/qmix",
-    "vdn":    "results/vdn",
+    # # "qmix":   "results/qmix",
+    # "vdn":    "results/vdn",
     "maddpg": "results/maddpg",
+    "hier_marl":    "results/hier_marl_2026_04_20_19_38_25/checkpoints/model_ep1000.pt",  # 自动从 results/hier_marl_*/model.pt 选择最新
+    "common_actor": None,  # 自动从 results/common_actor_*/model.pt 选择最新
 }
 
 # ── 指定要运行的策略（注释掉不需要的行即可）──────────────────────────────────
 STRATEGIES = [
-    "random",
-    "round_robin",
-    "least_loaded",
-    "best_fit",
-    "energy_greedy",
-    "idqn",
-    "vdn",
-    "qmix",
+    # "random",
+    # "round_robin",
+    # "least_loaded",
+    # "best_fit",
+    # "energy_greedy",
+    # "idqn",
+    # "vdn",
+    # # "qmix",
     "mappo",
     "maddpg",
+    "hier_marl",
+    "common_actor",
 ]
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 def _build_dim_info(num_jobs=NUM_JOBS, num_farms=NUM_FARMS, num_servers=NUM_SERVERS):
     env = CloudSchedulingEnv(num_jobs=num_jobs, num_server_farms=num_farms, num_servers=num_servers)
+    env.reset()
+    dim_info = {
+        agent_id: {
+            "obs_shape": {
+                key: space.shape
+                for key, space in env.observation_space(agent_id).spaces.items()
+            },
+            "action_dim": env.action_space(agent_id).n,
+        }
+        for agent_id in env.agents
+    }
+    env.close()
+    return dim_info
+
+
+def _build_dim_info_hier(num_jobs=NUM_JOBS, num_farms=NUM_FARMS, num_servers=NUM_SERVERS):
+    env = CloudSchedulingEnvHier(num_jobs=num_jobs, num_server_farms=num_farms, num_servers=num_servers)
     env.reset()
     dim_info = {
         agent_id: {
@@ -75,14 +97,17 @@ def _flatten_obs(obs_dict: dict) -> np.ndarray:
 
 
 class BaselineEvaluator:
-    def __init__(self, idqn=None, mappo=None, qmix=None, vdn=None, maddpg=None):
+    def __init__(self, idqn=None, mappo=None, qmix=None, vdn=None, maddpg=None,
+                 hier_marl=None, common_actor=None):
         self.rr_count_farm = 0
         self.rr_count_server = 0
         self.qmix = qmix
         self.vdn = vdn
         self.maddpg = maddpg
-        self.idqn = idqn    # 可选：传入已加载的 IDQN 实例
-        self.mappo = mappo  # 可选：传入已加载的 MAPPO 实例
+        self.hier_marl = hier_marl
+        self.common_actor = common_actor
+        self.idqn = idqn
+        self.mappo = mappo
 
     def get_actions(self, obs_dict, strategy, env):
         """适配 ParallelEnv：一次性为所有活动的 Agent 生成动作"""
@@ -186,7 +211,19 @@ class BaselineEvaluator:
         actions, _, _, _, _ = self.mappo.collect(obs_dict, deterministic=True)
         return actions
 
-def run_experiment(strategy_name, idqn=None, mappo=None, qmix=None, vdn=None, maddpg=None, seed=None):
+def run_experiment(strategy_name, idqn=None, mappo=None, qmix=None, vdn=None,
+                   maddpg=None, hier_marl=None, common_actor=None, seed=None,
+                   agent_env_configs=None):
+    _configs = agent_env_configs or {}
+    if strategy_name == "hier_marl":
+        n_farms, n_servers = _configs.get("hier_marl", (None, None))
+        return run_experiment_hier(strategy_name, agent=hier_marl, seed=seed,
+                                   num_farms=n_farms, num_servers=n_servers)
+    if strategy_name == "common_actor":
+        n_farms, n_servers = _configs.get("common_actor", (None, None))
+        return run_experiment_hier(strategy_name, agent=common_actor, seed=seed,
+                                   num_farms=n_farms, num_servers=n_servers)
+
     eval_env = CloudSchedulingEnv(num_jobs=NUM_JOBS, num_server_farms=NUM_FARMS, num_servers=NUM_SERVERS)
     observations, infos = eval_env.reset(seed=seed)
 
@@ -261,8 +298,127 @@ def run_experiment(strategy_name, idqn=None, mappo=None, qmix=None, vdn=None, ma
         "her": her,
     }
 
+
+def run_experiment_hier(strategy_name, agent=None, hier_marl=None, seed=None,
+                        num_farms=None, num_servers=None):
+    """Evaluate any agent that implements select_action(obs) -> dict on CloudSchedulingEnvHier."""
+    if agent is None:
+        agent = hier_marl
+    if agent is None:
+        raise ValueError(f"strategy='{strategy_name}' requires a loaded agent instance")
+
+    eval_env = CloudSchedulingEnvHier(
+        num_jobs=NUM_JOBS,
+        num_server_farms=num_farms if num_farms is not None else NUM_FARMS,
+        num_servers=num_servers if num_servers is not None else NUM_SERVERS,
+    )
+    observations, infos = eval_env.reset(seed=seed)
+
+    total_price = 0
+    step_count = 0
+    last_info = {}
+    jains_series = []
+    asr_series = []
+
+    while eval_env.agents:
+        if eval_env.all_jobs_complete:
+            break
+
+        actions = agent.select_action(observations)
+
+        observations, rewards, terminations, truncations, infos = eval_env.step(actions)
+        g_info = infos.get("global", {})
+        total_price += g_info.get("price", 0)
+        step_count += 1
+        last_info = g_info
+        if "jains_fairness" in g_info:
+            jains_series.append(g_info["jains_fairness"])
+        if "active_server_ratio" in g_info:
+            asr_series.append(g_info["active_server_ratio"])
+
+        if any(terminations.values()) or any(truncations.values()):
+            break
+
+    rejected = last_info.get("rejected_tasks_count", 0)
+    wall_time = last_info.get("wall_time", 0)
+    jains = _safe_mean(jains_series)
+    asr = _safe_mean(asr_series)
+    her = last_info.get("her", 0)
+    completed = len(last_info.get("completed_job_ids", set()))
+
+    eet = round(total_price / max(completed, 1), 4)
+    energy_per_completed_task = eet
+    decided_tasks = completed + rejected
+    scheduling_success_rate = _safe_rate(completed, decided_tasks)
+    scheduling_reject_rate = _safe_rate(rejected, decided_tasks)
+
+    print(
+        f"【实验结果】策略: {strategy_name:15} | 步数: {step_count:5} | "
+        f"价格: {total_price:.2f} | EET: {eet:.4f} | "
+        f"拒绝任务: {rejected:4} | 完成作业: {completed:4} | "
+        f"成功率: {scheduling_success_rate:.4f} | 拒绝率: {scheduling_reject_rate:.4f} | "
+        f"Jain(mean): {jains:.4f} | ASR(mean): {asr:.4f} | HER(final): {her:.4f}"
+    )
+    eval_env.close()
+
+    return {
+        "strategy": strategy_name,
+        "steps": step_count,
+        "total_price": round(total_price, 4),
+        "eet": eet,
+        "energy_per_completed_task": energy_per_completed_task,
+        "rejected_tasks": rejected,
+        "completed_jobs": completed,
+        "scheduling_success_rate": scheduling_success_rate,
+        "scheduling_reject_rate": scheduling_reject_rate,
+        "wall_time": wall_time,
+        "jains_fairness": jains,
+        "active_server_ratio": asr,
+        "her": her,
+    }
+
+
+def _detect_hier_model_config(path: str) -> tuple[int, int]:
+    """Return (num_farms, total_servers) inferred from saved actor weight shapes."""
+    import torch
+    data = torch.load(path, map_location="cpu")
+    n_locals = len([k for k in data if k.startswith("local_")])
+    local_key = f"local_0"
+    l_first_w = next(iter(data[local_key].values()))
+    l_in_dim = l_first_w.shape[1]
+    m_per_farm = (l_in_dim - 5) // 2
+    return n_locals, n_locals * m_per_farm
+
+
+def _find_latest_model(prefix: str) -> str | None:
+    base = os.path.dirname(os.path.abspath(__file__))
+    results_dir = os.path.join(base, "results")
+    if not os.path.isdir(results_dir):
+        return None
+    candidates = []
+    for name in os.listdir(results_dir):
+        if not name.startswith(prefix):
+            continue
+        model_path = os.path.join(results_dir, name, "model.pt")
+        if os.path.exists(model_path):
+            candidates.append(model_path)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    return candidates[0]
+
+
+def _find_latest_hier_model():
+    return _find_latest_model("hier_marl_")
+
+
+def _find_latest_common_actor_model():
+    return _find_latest_model("common_actor_")
+
+
 def _load_marl_agents():
     agents = {}
+    agent_env_configs = {}  # name -> (num_farms, num_servers)
     base = os.path.dirname(os.path.abspath(__file__))
     dim_info = _build_dim_info()
     candidates = {
@@ -270,6 +426,13 @@ def _load_marl_agents():
         for name, dir_path in MODEL_DIRS.items()
         if dir_path is not None
     }
+    latest_hier_model = _find_latest_hier_model()
+    if latest_hier_model is not None:
+        candidates["hier_marl"] = latest_hier_model
+
+    latest_common_actor_model = _find_latest_common_actor_model()
+    if latest_common_actor_model is not None:
+        candidates.setdefault("common_actor", latest_common_actor_model)
 
     for name, path in candidates.items():
         if not os.path.exists(path):
@@ -316,21 +479,56 @@ def _load_marl_agents():
                     actor_lr=5e-4,
                     critic_lr=5e-4,
                 )
+            elif name in ("hier_marl", "common_actor"):
+                # Auto-detect env config from saved weight shapes
+                n_farms, n_servers = _detect_hier_model_config(path)
+                dim_info_hier = _build_dim_info_hier(
+                    num_farms=n_farms, num_servers=n_servers
+                )
+                agent_env_configs[name] = (n_farms, n_servers)
+                if name == "hier_marl":
+                    from schedulers.marl.hier_marl.HierMARL import HierMARL
+                    agents[name] = HierMARL.load(
+                        dim_info=dim_info_hier,
+                        file=path,
+                        capacity=1,
+                        batch_size=1,
+                        actor_lr=3e-4,
+                        critic_lr=3e-4,
+                    )
+                else:
+                    from schedulers.marl.common_actor.CommonActor import CommonActor
+                    agents[name] = CommonActor.load(
+                        dim_info=dim_info_hier,
+                        file=path,
+                        capacity=1,
+                        batch_size=1,
+                        actor_lr=3e-4,
+                        critic_lr=3e-4,
+                    )
+                print(
+                    f"Loaded {name.upper()} model: {path} "
+                    f"(env: {n_farms} farms, {n_servers} servers)"
+                )
+                continue
             print(f"Loaded {name.upper()} model: {path}")
         except Exception as e:
             print(f"Skip {name}: failed to load model from {path} ({e})")
 
-    return agents
+    return agents, agent_env_configs
 
 
 def _run_main():
-    marl_agents = _load_marl_agents()
-    marl_names = {"idqn", "vdn", "qmix", "mappo", "maddpg"}
+    marl_agents, agent_env_configs = _load_marl_agents()
+    marl_names = {"idqn", "vdn", "qmix", "mappo", "maddpg", "hier_marl", "common_actor"}
     strategies = [s for s in STRATEGIES if s not in marl_names or s in marl_agents]
 
     all_results = []
     for s in strategies:
         print(f"\nRunning strategy: {s} ({NUM_SEEDS} seeds)...")
+        if s in agent_env_configs:
+            nf, ns = agent_env_configs[s]
+            print(f"  (model env: {nf} farms, {ns} servers)")
         seed_results = []
         for seed in range(NUM_SEEDS):
             try:
@@ -341,6 +539,9 @@ def _run_main():
                     qmix=marl_agents.get("qmix"),
                     vdn=marl_agents.get("vdn"),
                     maddpg=marl_agents.get("maddpg"),
+                    hier_marl=marl_agents.get("hier_marl"),
+                    common_actor=marl_agents.get("common_actor"),
+                    agent_env_configs=agent_env_configs,
                     seed=seed,
                 )
                 seed_results.append(result)
