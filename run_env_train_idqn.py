@@ -9,6 +9,7 @@ Independent DQN baseline：两个 agent 各自独立 Q-learning，无 centralize
 """
 
 import os
+import json
 import shutil
 from datetime import datetime
 
@@ -16,14 +17,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from env import cloud_scheduling_v0
+from components.model_scripts.make_server_farms import PROPORTION_PRESETS
 from schedulers.marl.idqn.IDQN import IDQN
 
 
 # ── 环境 & 维度信息 ──────────────────────────────────────────────────────────
 
+SERVER_PROPORTION_PRESET = "modern"
+SERVER_PROPORTIONS = dict(PROPORTION_PRESETS[SERVER_PROPORTION_PRESET])
+
+
 def set_env(num_jobs, num_server_farms, num_servers):
     env = cloud_scheduling_v0.CloudSchedulingEnv(
-        num_jobs, num_server_farms, num_servers
+        num_jobs, num_server_farms, num_servers,
+        server_proportions=SERVER_PROPORTIONS,
     )
     env.reset()
 
@@ -37,11 +44,35 @@ def set_env(num_jobs, num_server_farms, num_servers):
     return env, dim_info
 
 
+def save_run_snapshot(res_dir, hyper_params):
+    """
+    Save code and hyper-parameter snapshot for experiment reproducibility.
+    """
+    snapshot_dir = os.path.join(res_dir, "snapshot")
+    os.makedirs(snapshot_dir, exist_ok=True)
+
+    with open(os.path.join(snapshot_dir, "hyper_params.json"), "w", encoding="utf-8") as f:
+        json.dump(hyper_params, f, indent=2, ensure_ascii=False)
+
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    files_to_copy = [
+        "run_env_train_idqn.py",
+        "env/cloud_scheduling_v0.py",
+        "schedulers/marl/idqn/IDQN.py",
+    ]
+    for relative_path in files_to_copy:
+        src_file = os.path.join(project_root, relative_path)
+        if os.path.exists(src_file):
+            dst_file = os.path.join(snapshot_dir, relative_path)
+            os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+            shutil.copy2(src_file, dst_file)
+
+
 # ── 超参数（与 MADDPG 脚本保持一致，方便公平对比）───────────────────────────
 
-num_jobs         = 50
-num_server_farms = 2
-num_servers      = 6
+num_jobs         = int(os.getenv("NUM_JOBS",   "100"))
+num_server_farms = int(os.getenv("NUM_FARMS",  "4"))
+num_servers      = int(os.getenv("NUM_SERVERS","20"))  # must be divisible by num_server_farms
 
 episode_num      = int(os.getenv("EPISODES", "1000"))
 random_steps     = int(num_jobs * 0.1)   # 前 30 步纯随机探索
@@ -67,7 +98,27 @@ res_dir = os.path.join(
 )
 os.makedirs(res_dir, exist_ok=True)
 reward_file_path = os.path.join(res_dir, 'reward.txt')
+
+hyper_params = {
+    "num_jobs": num_jobs,
+    "num_server_farms": num_server_farms,
+    "num_servers": num_servers,
+    "episode_num": episode_num,
+    "random_steps": random_steps,
+    "learn_interval": learn_interval,
+    "capacity": capacity,
+    "batch_size": batch_size,
+    "lr": lr,
+    "gamma": gamma,
+    "tau": tau,
+    "eps_start": eps_start,
+    "eps_end": eps_end,
+    "eps_decay_steps": eps_decay_steps,
+}
+save_run_snapshot(res_dir, hyper_params)
 print(f"本次实验输出目录: {res_dir}")
+print(f"代码与超参数快照已保存: {os.path.join(res_dir, 'snapshot')}")
+print(f"Server heterogeneity preset: {SERVER_PROPORTION_PRESET} -> {SERVER_PROPORTIONS}")
 
 # ── 初始化 ───────────────────────────────────────────────────────────────────
 

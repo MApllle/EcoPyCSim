@@ -16,6 +16,7 @@ Multi-Agent Proximal Policy Optimization（MAPPO）：
 """
 
 import os
+import json
 import shutil
 from datetime import datetime
 
@@ -23,14 +24,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from env import cloud_scheduling_v0
+from components.model_scripts.make_server_farms import PROPORTION_PRESETS
 from schedulers.marl.mappo.MAPPO import MAPPO
 
 
 # ── 环境与维度信息 ────────────────────────────────────────────────────────────
 
+SERVER_PROPORTION_PRESET = "modern"
+SERVER_PROPORTIONS = dict(PROPORTION_PRESETS[SERVER_PROPORTION_PRESET])
+
+
 def set_env(num_jobs, num_server_farms, num_servers):
     env = cloud_scheduling_v0.CloudSchedulingEnv(
-        num_jobs, num_server_farms, num_servers
+        num_jobs, num_server_farms, num_servers,
+        server_proportions=SERVER_PROPORTIONS,
     )
     env.reset()
 
@@ -44,11 +51,35 @@ def set_env(num_jobs, num_server_farms, num_servers):
     return env, dim_info
 
 
+def save_run_snapshot(res_dir, hyper_params):
+    """
+    Save code and hyper-parameter snapshot for experiment reproducibility.
+    """
+    snapshot_dir = os.path.join(res_dir, "snapshot")
+    os.makedirs(snapshot_dir, exist_ok=True)
+
+    with open(os.path.join(snapshot_dir, "hyper_params.json"), "w", encoding="utf-8") as f:
+        json.dump(hyper_params, f, indent=2, ensure_ascii=False)
+
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    files_to_copy = [
+        "run_env_train_mappo.py",
+        "env/cloud_scheduling_v0.py",
+        "schedulers/marl/mappo/MAPPO.py",
+    ]
+    for relative_path in files_to_copy:
+        src_file = os.path.join(project_root, relative_path)
+        if os.path.exists(src_file):
+            dst_file = os.path.join(snapshot_dir, relative_path)
+            os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+            shutil.copy2(src_file, dst_file)
+
+
 # ── 超参数 ────────────────────────────────────────────────────────────────────
 
-num_jobs         = 50
-num_server_farms = 2
-num_servers      = 6
+num_jobs         = int(os.getenv("NUM_JOBS",   "100"))
+num_server_farms = int(os.getenv("NUM_FARMS",  "4"))
+num_servers      = int(os.getenv("NUM_SERVERS","20"))  # must be divisible by num_server_farms
 
 episode_num      = int(os.getenv("EPISODES", "1000"))
 
@@ -80,7 +111,29 @@ res_dir = os.path.join(
 os.makedirs(res_dir, exist_ok=True)
 reward_file_path = os.path.join(res_dir, 'reward.txt')
 open(reward_file_path, 'w').close()
+
+hyper_params = {
+    "num_jobs": num_jobs,
+    "num_server_farms": num_server_farms,
+    "num_servers": num_servers,
+    "episode_num": episode_num,
+    "episode_length": episode_length,
+    "num_mini_batch": num_mini_batch,
+    "ppo_epoch": ppo_epoch,
+    "lr": lr,
+    "gamma": gamma,
+    "gae_lambda": gae_lambda,
+    "clip_param": clip_param,
+    "entropy_coef": entropy_coef,
+    "value_loss_coef": value_loss_coef,
+    "max_grad_norm": max_grad_norm,
+    "hidden_size": hidden_size,
+    "use_valuenorm": use_valuenorm,
+}
+save_run_snapshot(res_dir, hyper_params)
 print(f"本次实验输出目录: {res_dir}")
+print(f"代码与超参数快照已保存: {os.path.join(res_dir, 'snapshot')}")
+print(f"Server heterogeneity preset: {SERVER_PROPORTION_PRESET} -> {SERVER_PROPORTIONS}")
 
 # ── 初始化 ────────────────────────────────────────────────────────────────────
 

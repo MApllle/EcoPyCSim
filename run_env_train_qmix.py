@@ -26,14 +26,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from env import cloud_scheduling_v0
+from components.model_scripts.make_server_farms import PROPORTION_PRESETS
 from schedulers.marl.qmix.QMIX import QMIX
 
 
 # ── 环境 & 维度信息 ──────────────────────────────────────────────────────────
 
+SERVER_PROPORTION_PRESET = "modern"
+SERVER_PROPORTIONS = dict(PROPORTION_PRESETS[SERVER_PROPORTION_PRESET])
+
+
 def set_env(num_jobs, num_server_farms, num_servers):
     env = cloud_scheduling_v0.CloudSchedulingEnv(
-        num_jobs, num_server_farms, num_servers
+        num_jobs, num_server_farms, num_servers,
+        server_proportions=SERVER_PROPORTIONS,
     )
     env.reset()
 
@@ -49,9 +55,9 @@ def set_env(num_jobs, num_server_farms, num_servers):
 
 # ── 超参数（与 VDN / IDQN 脚本完全一致，保证公平对比） ─────────────────────────
 
-num_jobs         = 50
-num_server_farms = 2
-num_servers      = 6
+num_jobs         = int(os.getenv("NUM_JOBS",   "100"))
+num_server_farms = int(os.getenv("NUM_FARMS",  "4"))
+num_servers      = int(os.getenv("NUM_SERVERS","20"))  # must be divisible by num_server_farms
 
 episode_num      = int(os.getenv("EPISODES", "1000"))
 random_steps     = max(int(num_jobs * 2), int(num_jobs * episode_num * 0.1))
@@ -79,6 +85,7 @@ res_dir = os.path.join(
 os.makedirs(res_dir, exist_ok=True)
 reward_file_path = os.path.join(res_dir, 'reward.txt')
 print(f"本次实验输出目录: {res_dir}")
+print(f"Server heterogeneity preset: {SERVER_PROPORTION_PRESET} -> {SERVER_PROPORTIONS}")
 
 # ── 初始化 ───────────────────────────────────────────────────────────────────
 
