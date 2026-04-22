@@ -134,12 +134,16 @@ class CloudSchedulingEnvHier(ParallelEnv):
         for sf in server_farms:
             self.server_farms[sf.id] = sf
 
+        # Plan B: baseline estimated as power at each server's opt_utilization
+        self.baseline_power_per_step = sum(
+            0.035 + s.opt_utilization * s.alpha
+            for sf in self.server_farms.values()
+            for s in sf.servers.values()
+        )
+
         self._selected_farm_id = 0
         self.server_id = 0
 
-        self.prev_total_energy = 0.0
-        self.prev_rejected_tasks_count = 0
-        self.prev_completed_jobs_count = 0
         self._last_hetero_reward = 0.0
         self._her_numerator = 0.0
         self._her_denominator = 0.0
@@ -149,6 +153,7 @@ class CloudSchedulingEnvHier(ParallelEnv):
         self.rejected_job_ids = set()
         self.rejected_tasks_count = 0
         self.task_rejected_status = False
+        self.task_just_scheduled = False
 
         self.schedulable_tasks = False
         self.scheduled_tasks = set()
@@ -180,15 +185,20 @@ class CloudSchedulingEnvHier(ParallelEnv):
 
             self.scheduled_task_deadline = 0
             self.task_rejected_status = False
+            self.task_just_scheduled = False
             return obs, rew, term, trunc, info
 
         self._resume_simulation()
 
         obs   = {a: self._get_observation(a) for a in self.agents}
-        rew   = {a: 0 for a in self.agents}
+        rew   = {a: 0.0 for a in self.agents}
         term  = {a: False for a in self.agents}
         if self.all_jobs_complete:
             term = {a: True for a in self.agents}
+            # terminal completion reward: fraction of originally submitted jobs
+            # that were successfully completed (not rejected).  Ranges in [0, 1].
+            completion_rate = self.num_completed_jobs / max(self.num_jobs, 1)
+            rew = {a: completion_rate for a in self.agents}
         trunc = {a: False for a in self.agents}
         info  = {a: self._get_info(a) for a in self.agents}
         return obs, rew, term, trunc, info
@@ -245,34 +255,32 @@ class CloudSchedulingEnvHier(ParallelEnv):
     # ------------------------------------------------------------------
 
     def _get_rewards(self):
-        # ── 1. 共享能耗节约项 ──
-        curr_energy = sum(sf.get_price for sf in self.server_farms.values())
-        prev_energy = self.prev_total_energy
-        if not self.task_rejected_status and prev_energy > 0:
-            denom = max(abs(prev_energy), 1.0)
-            r_energy = float(np.clip((prev_energy - curr_energy) / denom, -1.0, 1.0))
-        else:
-            r_energy = 0.0
-        self.prev_total_energy = curr_energy
+        # ── 1. 共享能耗节约项（方案 B：相对基线的瞬时功率节约）──
+        curr_power = sum(
+            s.total_power
+            for sf in self.server_farms.values()
+            for s in sf.servers.values()
+        )
+        baseline = max(self.baseline_power_per_step, 1e-6)
+        r_energy = float(np.clip((baseline - curr_power) / baseline, -1.0, 1.0))
 
-        # ── 2. 共享任务结果项 ──
-        rej_delta = max(0, self.rejected_tasks_count - self.prev_rejected_tasks_count)
-        cmp_delta = max(0, self.num_completed_jobs   - self.prev_completed_jobs_count)
+        # ── 2. 共享任务结果项（方案 A：去掉恒正偏置）──
         if self.task_rejected_status:
-            r_task = -min(1.2 * rej_delta, 8.0)
+            r_task = -1.0
+        elif self.task_just_scheduled:
+            r_task = +1.0
         else:
-            r_task = 1.0 + 0.5 * cmp_delta
-        self.prev_rejected_tasks_count = self.rejected_tasks_count
-        self.prev_completed_jobs_count = self.num_completed_jobs
+            r_task = 0.0
 
-        # ── 3. 共享奖励 ──
+        # ── 3. 共享奖励（完成信号挪到 terminal step，不在每步归因）──
         r_shared = self.alpha_energy * r_energy + self.beta_task * r_task
 
         # ── 4. 局部增量项（仅给被选中的 local agent）──
         farm_utils = [float(np.mean(sf.curr_cpus_util)) for sf in self.server_farms.values()]
         mean_util = float(np.mean(farm_utils))
         selected_util = farm_utils[self._selected_farm_id]
-        r_lb = -abs(selected_util - mean_util)
+        # r_lb = -abs(selected_util - mean_util)
+        r_lb = 0.0 #临时测试使用
 
         # ── 5. 分发到每个 agent ──
         rewards = {self.global_agent_id: r_shared}
@@ -396,6 +404,7 @@ class CloudSchedulingEnvHier(ParallelEnv):
 
         self._handle_task_arrival(task)
 
+        self.task_just_scheduled = False
         if server.is_available:
             scheduled = server.host_task_in_server(task)
             if scheduled:
@@ -406,6 +415,7 @@ class CloudSchedulingEnvHier(ParallelEnv):
                 self._insert_task_departure_event(task)
                 self.scheduled_tasks.add(task)
                 self.schedulable_tasks = False
+                self.task_just_scheduled = True
                 self._her_numerator += task.cpu * server.efficiency_tier
                 self._her_denominator += task.cpu
             else:

@@ -44,7 +44,7 @@ class Buffer:
         obs = torch.from_numpy(obs).float().to(self.device)  # torch.Size([batch_size, state_dim])
         action = torch.from_numpy(action).float().to(self.device)  # torch.Size([batch_size, action_dim])
         reward = torch.from_numpy(reward).float().to(self.device)  # just a tensor with length: batch_size
-        reward = (reward - reward.mean()) / (reward.std() + 1e-7)
+        reward = reward / 2.0  # fixed scaling; batch normalisation is wrong for off-policy
         next_obs = torch.from_numpy(next_obs).float().to(self.device)  # Size([batch_size, state_dim])
         done = torch.from_numpy(done).float().to(self.device)  # just a tensor with length: batch_size
 

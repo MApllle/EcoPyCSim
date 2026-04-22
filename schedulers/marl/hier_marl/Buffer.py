@@ -32,7 +32,7 @@ class LocalBuffer:
         obs = torch.from_numpy(self.obs[indices]).to(self.device)
         action = torch.from_numpy(self.action[indices]).to(self.device)
         reward = torch.from_numpy(self.reward[indices]).to(self.device)
-        reward = (reward - reward.mean()) / (reward.std() + 1e-7)
+        reward = reward / 2.0  # fixed scaling; batch normalisation is wrong for off-policy
         next_obs = torch.from_numpy(self.next_obs[indices]).to(self.device)
         done = torch.from_numpy(self.done[indices]).to(self.device)
         return obs, action, reward, next_obs, done
@@ -89,7 +89,7 @@ class GlobalBuffer:
         to_t = lambda arr: torch.from_numpy(arr[indices]).to(self.device)
 
         reward = to_t(self.reward)
-        reward = (reward - reward.mean()) / (reward.std() + 1e-7)
+        reward = reward / 2.0  # fixed scaling; batch normalisation is wrong for off-policy
 
         return (
             to_t(self.g_obs),

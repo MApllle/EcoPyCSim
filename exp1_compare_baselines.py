@@ -6,45 +6,55 @@ import torch
 
 from env.cloud_scheduling import CloudSchedulingEnv
 from env.cloud_scheduling_hier import CloudSchedulingEnvHier
+from components.model_scripts.make_server_farms import PROPORTION_PRESETS
 
 
-NUM_JOBS = 50
-NUM_FARMS = 2
-NUM_SERVERS = 6
+NUM_JOBS = 100
+NUM_FARMS = 4
+NUM_SERVERS = 20
 NUM_SEEDS = 5
+
+# 服务器异构比例预设：在这里切换 "balanced" / "legacy" / "modern"
+SERVER_PROPORTION_PRESET = "modern"
+SERVER_PROPORTIONS = dict(PROPORTION_PRESETS[SERVER_PROPORTION_PRESET])
 
 # ── 指定各算法的结果目录（相对于项目根目录）──────────────────────────────────
 # 将对应算法的目录名改为实际路径，设为 None 则跳过该算法
 MODEL_DIRS = {
-    # "idqn":   "results/idqn",
+    "idqn":   "results/idqn",
     "mappo":  "results/mappo",
     # # "qmix":   "results/qmix",
-    # "vdn":    "results/vdn",
+    "vdn":    "results/vdn",
     "maddpg": "results/maddpg",
-    "hier_marl":    "results/hier_marl_2026_04_20_19_38_25/checkpoints/model_ep1000.pt",  # 自动从 results/hier_marl_*/model.pt 选择最新
-    "common_actor": None,  # 自动从 results/common_actor_*/model.pt 选择最新
+    # "hier_marl":    "results/hier_marl_2026_04_21_08_31_33/checkpoints/model_ep1000.pt",  # 自动从 results/hier_marl_*/model.pt 选择最新
+    # "common_actor": None,  # 自动从 results/common_actor_*/model.pt 选择最新
 }
 
 # ── 指定要运行的策略（注释掉不需要的行即可）──────────────────────────────────
 STRATEGIES = [
-    # "random",
-    # "round_robin",
-    # "least_loaded",
-    # "best_fit",
-    # "energy_greedy",
-    # "idqn",
-    # "vdn",
+    "random",
+    "round_robin",
+    "least_loaded",
+    "best_fit",
+    "energy_greedy",
+    "idqn",
+    "vdn",
     # # "qmix",
     "mappo",
     "maddpg",
-    "hier_marl",
-    "common_actor",
+    # "hier_marl",
+    # "common_actor",
 ]
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 def _build_dim_info(num_jobs=NUM_JOBS, num_farms=NUM_FARMS, num_servers=NUM_SERVERS):
-    env = CloudSchedulingEnv(num_jobs=num_jobs, num_server_farms=num_farms, num_servers=num_servers)
+    env = CloudSchedulingEnv(
+        num_jobs=num_jobs,
+        num_server_farms=num_farms,
+        num_servers=num_servers,
+        server_proportions=SERVER_PROPORTIONS,
+    )
     env.reset()
     dim_info = {
         agent_id: {
@@ -61,7 +71,12 @@ def _build_dim_info(num_jobs=NUM_JOBS, num_farms=NUM_FARMS, num_servers=NUM_SERV
 
 
 def _build_dim_info_hier(num_jobs=NUM_JOBS, num_farms=NUM_FARMS, num_servers=NUM_SERVERS):
-    env = CloudSchedulingEnvHier(num_jobs=num_jobs, num_server_farms=num_farms, num_servers=num_servers)
+    env = CloudSchedulingEnvHier(
+        num_jobs=num_jobs,
+        num_server_farms=num_farms,
+        num_servers=num_servers,
+        server_proportions=SERVER_PROPORTIONS,
+    )
     env.reset()
     dim_info = {
         agent_id: {
@@ -224,7 +239,12 @@ def run_experiment(strategy_name, idqn=None, mappo=None, qmix=None, vdn=None,
         return run_experiment_hier(strategy_name, agent=common_actor, seed=seed,
                                    num_farms=n_farms, num_servers=n_servers)
 
-    eval_env = CloudSchedulingEnv(num_jobs=NUM_JOBS, num_server_farms=NUM_FARMS, num_servers=NUM_SERVERS)
+    eval_env = CloudSchedulingEnv(
+        num_jobs=NUM_JOBS,
+        num_server_farms=NUM_FARMS,
+        num_servers=NUM_SERVERS,
+        server_proportions=SERVER_PROPORTIONS,
+    )
     observations, infos = eval_env.reset(seed=seed)
 
     evaluator = BaselineEvaluator(idqn=idqn, mappo=mappo, qmix=qmix, vdn=vdn, maddpg=maddpg)
@@ -311,6 +331,7 @@ def run_experiment_hier(strategy_name, agent=None, hier_marl=None, seed=None,
         num_jobs=NUM_JOBS,
         num_server_farms=num_farms if num_farms is not None else NUM_FARMS,
         num_servers=num_servers if num_servers is not None else NUM_SERVERS,
+        server_proportions=SERVER_PROPORTIONS,
     )
     observations, infos = eval_env.reset(seed=seed)
 
@@ -519,6 +540,10 @@ def _load_marl_agents():
 
 
 def _run_main():
+    print(
+        f"Server heterogeneity preset: {SERVER_PROPORTION_PRESET} "
+        f"-> {SERVER_PROPORTIONS}"
+    )
     marl_agents, agent_env_configs = _load_marl_agents()
     marl_names = {"idqn", "vdn", "qmix", "mappo", "maddpg", "hier_marl", "common_actor"}
     strategies = [s for s in STRATEGIES if s not in marl_names or s in marl_agents]
